@@ -1,0 +1,624 @@
+import Loader from "./loader.js"
+import Func from "./function.js"
+import Logger from "./logger.js"
+import fs from "fs"
+
+import Button from "./button.js"
+
+import {
+    isRegistered
+} from "./register.js"
+
+import {
+
+    getSession,
+
+    deleteSession
+
+} from "./addcommand.js"
+
+import {
+
+    isMuted,
+
+    getMute,
+
+    unmute
+
+} from "./mute.js"
+
+
+import {
+
+    isBlacklist
+
+} from "../lib/blacklistgroup.js"
+
+import {
+
+    isAfk,
+
+    getAfk,
+
+    delAfk
+
+} from "./afk.js"
+
+export default async function Handler(sock, m) {
+
+    const body = m.body || ""
+
+    if (
+
+    isAfk(m.sender) &&
+
+    !body.startsWith(
+    global.prefix + "afk"
+)
+
+) {
+
+    const afk =
+
+        getAfk(m.sender)
+
+    delAfk(m.sender)
+
+    const duration =
+
+        Func.toTime(
+
+            Date.now() -
+
+            afk.time
+
+        )
+
+    await m.reply(
+
+`╭━━━〔 🌤️ AFK OFF 〕━━━⬣
+
+Selamat datang kembali!
+
+⏱️ AFK Selama
+${duration}
+
+📝 Alasan
+${afk.reason || "-"}
+
+╰━━━━━━━━━━━━━━━━━━⬣`
+
+    )
+
+}
+    
+
+    const sender =
+
+    m.senderNumber ||
+
+    m.sender.split("@")[0]
+
+    
+        const isCreator = global.owner.some(owner =>
+        sender === owner ||
+        m.sender === owner ||
+        m.sender.startsWith(owner)
+    )
+
+    // Self Mode
+    if (
+        global.settings?.public === false &&
+        !isCreator
+    )
+        return
+    
+
+    
+    const session =
+
+    getSession(
+
+        m.sender
+
+    )
+
+if (
+
+    session &&
+
+    !m.body.startsWith(global.prefix)
+
+) {
+
+    try {
+
+        fs.writeFileSync(
+
+            session.file,
+
+            m.body,
+
+            "utf8"
+
+        )
+
+        const ok =
+
+            await Loader.reload(
+
+                session.file
+
+            )
+
+        if (!ok) {
+
+            fs.unlinkSync(
+
+                session.file
+
+            )
+
+            deleteSession(
+
+                m.sender
+
+            )
+
+            return m.reply(
+
+`❌ Syntax Error.
+
+Command dibatalkan.`
+
+            )
+
+        }
+
+        deleteSession(
+
+            m.sender
+
+        )
+
+        return m.reply(
+
+`✅ Command berhasil ditambahkan.
+
+📁 ${session.file}`
+
+        )
+
+    }
+
+    catch (e) {
+
+        if (
+
+            fs.existsSync(
+
+                session.file
+
+            )
+
+        )
+
+            fs.unlinkSync(
+
+                session.file
+
+            )
+
+        deleteSession(
+
+            m.sender
+
+        )
+
+        console.error(e)
+
+        return m.reply(
+
+            String(e)
+
+        )
+
+    }
+
+}
+    const isButton =
+
+    body.startsWith("hv_reg_") ||
+
+    body.startsWith("buyrank:") ||
+          
+    body.startsWith("kick_yes:") ||
+          
+    body.startsWith("kick_no:") ||
+
+    body.startsWith("checkpayment:")
+
+const isCommand =
+
+    body.startsWith(global.prefix)
+
+if (
+
+    !isCommand &&
+
+    !isButton
+
+)
+
+    return
+
+const command = isButton
+
+    ? body
+
+    : body
+        .slice(global.prefix.length)
+        .trim()
+        .split(/ +/)
+        .shift()
+        .toLowerCase()
+    const args = body
+        .slice(global.prefix.length)
+        .trim()
+        .split(/ +/)
+        .slice(1)
+
+    const text = args.join(" ")
+
+
+
+    // Auto Presence
+    if (global.settings?.autotyping) {
+
+        await sock.sendPresenceUpdate(
+            "composing",
+            m.chat
+        )
+
+    }
+
+    else if (global.settings?.autovoice) {
+
+        await sock.sendPresenceUpdate(
+            "recording",
+            m.chat
+        )
+
+    }
+
+const plugin = Loader.get(command)
+
+if (
+    m.isGroup &&
+    !isCreator &&
+    isBlacklist(m.chat)
+) {
+
+    if (
+        global.settings?.autotyping ||
+        global.settings?.autovoice
+    )
+
+        await sock.sendPresenceUpdate(
+            "paused",
+            m.chat
+        )
+
+    return m.reply(
+        "🚫 Bot dinonaktifkan di grup ini."
+    )
+
+}
+
+if (!plugin) {
+
+    if (
+
+        global.settings?.autotyping ||
+
+        global.settings?.autovoice
+
+    )
+
+        await sock.sendPresenceUpdate(
+            "paused",
+            m.chat
+        )
+
+    return
+
+}
+
+    // Register Gate
+    const registerWhitelist = [
+
+    "daftar",
+
+    "register",
+
+    /^hv_reg_java_.*/,
+
+    /^hv_reg_bedrock_.*/
+
+]
+
+const bypassRegister =
+
+    registerWhitelist.some(item =>
+
+        typeof item === "string"
+
+            ? item === command
+
+            : item.test(command)
+
+    )
+
+if (
+
+    !isCreator &&
+
+    !isRegistered(sender) &&
+
+    !bypassRegister
+
+) {
+
+        if (
+
+            global.settings?.autotyping ||
+
+            global.settings?.autovoice
+
+        )
+
+            await sock.sendPresenceUpdate(
+                "paused",
+                m.chat
+            )
+
+        return Button.menu({
+
+            sock,
+
+            m,
+
+            body:
+
+`╭━━━〔 ✦ REGISTRATION REQUIRED ✦ 〕━━━⬣
+
+Kamu belum terdaftar sehingga
+belum dapat menggunakan seluruh
+fitur HV BOT.
+
+Sebelum melakukan registrasi,
+pastikan kamu sudah pernah
+bergabung ke server HeavyCraft.
+
+🌍 Address
+play.heavycraft.my.id
+
+🔌 Port Bedrock
+19132
+
+Setelah bergabung ke server,
+tekan tombol di bawah untuk
+memulai proses registrasi.
+
+╰━━━━━━━━━━━━━━━━━━⬣`,
+
+            footer:
+                "© HeavyCraft",
+
+            buttons: [
+
+                {
+
+                    type: "quick",
+
+                    text: "📝 Daftar",
+
+                    id: ".daftar"
+
+                }
+
+            ]
+
+        })
+
+    }
+
+    if (
+
+        plugin.owner &&
+
+        !isCreator
+
+    ) {
+
+        if (
+
+            global.settings?.autotyping ||
+
+            global.settings?.autovoice
+
+        )
+
+            await sock.sendPresenceUpdate(
+                "paused",
+                m.chat
+            )
+
+        return m.reply(
+            global.mess.owner
+        )
+
+    }
+
+    const targets = new Set()
+
+if (
+
+    m.mentionedJid
+
+)
+
+    m.mentionedJid.forEach(
+
+        jid =>
+
+            targets.add(jid)
+
+    )
+
+if (
+
+    m.quoted?.sender
+
+)
+
+    targets.add(
+
+        m.quoted.sender
+
+    )
+
+for (
+
+    const jid
+
+    of
+
+    targets
+
+) {
+
+    if (
+
+        !isAfk(
+
+            jid
+
+        )
+
+    )
+
+        continue
+
+    const afk =
+
+        getAfk(
+
+            jid
+
+        )
+
+    const duration =
+
+        Func.toTime(
+
+            Date.now() -
+
+            afk.time
+
+        )
+
+    await m.reply(
+
+`🌙 User sedang AFK.
+
+👤 @${jid.split("@")[0]}
+
+📝 Alasan
+${afk.reason || "-"}
+
+⏱️ Sejak
+${duration}`,
+
+        {
+
+            mentions: [
+
+                jid
+
+            ]
+
+        }
+
+    )
+
+}
+    
+    const start = Date.now()
+
+    try {
+
+        await plugin.run({
+
+            sock,
+
+            m,
+            
+            body,
+
+            command,
+
+            args,
+
+            text,
+
+            Func,
+
+            isCreator
+
+        })
+
+        Logger.command(
+
+            m,
+
+            command,
+
+            Date.now() - start
+
+        )
+
+    }
+
+    catch (e) {
+
+        Logger.error(
+
+            `${command} → ${e.message}`
+
+        )
+
+        console.error(e)
+
+        m.reply(
+
+            String(e)
+
+        )
+
+    }
+
+    if (
+
+        global.settings?.autotyping ||
+
+        global.settings?.autovoice
+
+    )
+
+        await sock.sendPresenceUpdate(
+            "paused",
+            m.chat
+        )
+
+}

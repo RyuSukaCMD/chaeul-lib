@@ -1,0 +1,128 @@
+import Loader from "./loader.js"
+import Func from "./function.js"
+import Logger from "./logger.js"
+import { isRegistered } from "./register.js"
+
+export default async function Handler(sock, m) {
+
+    const body = m.body || ""
+
+    Logger.chat(m)
+
+    if (!body.startsWith(global.prefix))
+        return
+
+    const command = body
+        .slice(global.prefix.length)
+        .trim()
+        .split(/ +/)
+        .shift()
+        .toLowerCase()
+
+    const args = body
+        .slice(global.prefix.length)
+        .trim()
+        .split(/ +/)
+        .slice(1)
+
+    const text = args.join(" ")
+
+    const sender =
+        m.senderNumber ||
+        m.sender.split("@")[0]
+
+    const isCreator =
+        global.owner.some(owner =>
+            sender === owner ||
+            m.sender === owner ||
+            m.sender.split("@")[0] === owner
+        )
+
+    const plugin = Loader.get(command)
+
+    if (!plugin)
+        return
+
+    const isAdmin =
+        m.isGroup &&
+        (m.isAdmin || m.isSuperAdmin)
+
+    const isRegisterCommand =
+        ["daftar", "register"].includes(command)
+
+    // =========================
+    // 🔐 AUTO REGISTER BLOCK
+    // =========================
+
+    if (
+        !isCreator &&
+        !isAdmin &&
+        !isRegisterCommand &&
+        !isRegistered(sender)
+    ) {
+
+        return m.reply(
+
+`╭━━━〔 ✦ ACCESS DENIED ✦ 〕━━━⬣
+
+Kamu belum terdaftar di sistem HV BOT.
+
+Sebelum menggunakan bot, kamu wajib join server Minecraft:
+
+🌍 Server
+├ Address : play.heavycraft.my.id
+└ Port    : 19132
+
+Setelah join server, lakukan registrasi:
+
+${global.prefix}daftar Username|java
+atau
+${global.prefix}daftar Username|bedrock
+
+Contoh:
+${global.prefix}daftar Steve|java
+
+╰━━━━━━━━━━━━━━━━━━⬣`
+
+        )
+    }
+
+    // =========================
+    // OWNER ONLY PLUGIN
+    // =========================
+
+    if (plugin.owner && !isCreator)
+        return m.reply(global.mess.owner)
+
+    const start = Date.now()
+
+    try {
+
+        await plugin.run({
+            sock,
+            m,
+            command,
+            args,
+            text,
+            Func,
+            isCreator
+        })
+
+        Logger.command(
+            m,
+            command,
+            Date.now() - start
+        )
+
+    } catch (e) {
+
+        Logger.error(
+            `${command} → ${e.message}`
+        )
+
+        console.error(e)
+
+        m.reply(String(e))
+    }
+
+}
