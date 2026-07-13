@@ -19,6 +19,7 @@ const CAT_ICON = {
     Relationship: "💞",
     Minecraft: "🎮",
     Group: "👥",
+    RPG: "🎮",
     Owner: "👑"
 }
 

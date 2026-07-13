@@ -12,6 +12,7 @@ const CAT_ICON = {
     relationship: "💞",
     minecraft: "🎮",
     group: "👥",
+    rpg: "🎮",
     minecraft: "🎮",
     owner: "👑"
 }
@@ -24,6 +25,8 @@ const ALIAS = {
     relationshipmenu: "relationship",
     miscmenu: "misc",
     stickermenu: "sticker",
+    rpgmenu: "rpg",
+    groupmenu: "group",
     mainmenu: "main"
 }
 

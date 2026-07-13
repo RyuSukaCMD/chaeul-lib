@@ -1,8 +1,8 @@
-import { makeProposalCommand } from "../../lib/proposalFlow.js"
+import { makeProposalCommand, makeExpireNotifier } from "../../lib/proposalFlow.js"
 import { tag } from "../../lib/resolve.js"
 import { createActionStore } from "../../lib/actionStore.js"
 
-const store = createActionStore()
+const store = createActionStore({ onExpire: makeExpireNotifier("KISS", "💋") })
 
 export default makeProposalCommand({
     name: "kiss",
@@ -11,9 +11,10 @@ export default makeProposalCommand({
     emoji: "💋",
     title: "KISS",
     verbAsk: "mencium",
-    description: "Mencium user lain (butuh persetujuan / bisa Force)",
+    description: "Mencium user lain (skip konfirmasi bila sudah menikah)",
     store,
     forcible: true,
+    skipIfMarried: true,
 
     forceText: {
         miss: (p) => `${tag(p.proposer)} mencoba mencium\n${tag(p.target)} tapi m-le-set! 😳💨`,
