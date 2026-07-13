@@ -1,7 +1,15 @@
 import Loader from "../../lib/loader.js"
 import { card } from "../../lib/ui.js"
 import { checkAdmin } from "../../lib/groupadmin.js"
-import { disableCommand, enableCommand, isDisabled, isAdminOnly } from "../../lib/groupmanage.js"
+import {
+    disableCommand,
+    enableCommand,
+    isDisabled,
+    isAdminOnly,
+    disableAll,
+    enableAll,
+    isAllDisabled
+} from "../../lib/groupmanage.js"
 
 // Command yang tidak boleh dimatikan (agar grup tetap bisa dikelola)
 const PROTECTED = [
@@ -39,10 +47,47 @@ export default {
                     [
                         `Contoh:`,
                         `${global.prefix}${command} sticker`,
+                        `${global.prefix}${command} all  (semua command)`,
                         !isEnable
                             ? `${global.prefix}disablecommand sticker admin  (khusus admin)`
                             : ``
                     ].filter(Boolean),
+                    { emoji: "⚙️" }
+                )
+            )
+        }
+
+        // ── ALL: matikan / aktifkan SEMUA command sekaligus ──
+        if (target === "all") {
+            if (isEnable) {
+                if (!isAllDisabled(m.chat)) {
+                    return m.reply(
+                        card("ENABLE COMMAND", `Semua command memang sudah aktif.`, {
+                            emoji: "✅"
+                        })
+                    )
+                }
+                enableAll(m.chat)
+                await m.react("✅")
+                return m.reply(
+                    card("ENABLE COMMAND", `✅ SEMUA command diaktifkan kembali.`, {
+                        emoji: "✅"
+                    })
+                )
+            }
+
+            disableAll(m.chat)
+            await m.react("✅")
+            return m.reply(
+                card(
+                    "DISABLE COMMAND",
+                    [
+                        `🚫 SEMUA command dimatikan di grup ini.`,
+                        `Command group management tetap aktif`,
+                        `agar grup bisa dipulihkan.`,
+                        ``,
+                        `Aktifkan lagi: ${global.prefix}enablecommand all`
+                    ],
                     { emoji: "⚙️" }
                 )
             )
