@@ -1,13 +1,15 @@
 import { card } from "../../lib/ui.js"
 import { resolvePn, tag } from "../../lib/resolve.js"
-import { getPlayer, setHp, getAtk, addMoney, addXp, healFull, SHOP } from "../../lib/rpg.js"
+import { getPlayer, setHp, getAtk, getDef, addMoney, addXp, maxHp, ITEMS } from "../../lib/rpg.js"
+
+const rand = (a, b) => Math.floor(Math.random() * (b - a + 1)) + a
 
 export default {
     command: ["attack", "serang"],
 
     category: "RPG",
 
-    description: "Serang user lain (berbasis HP & senjata)",
+    description: "Serang pemain lain (HP, senjata & armor)",
 
     async run({ sock, m }) {
         const me = await resolvePn(sock, m, m.sender)
@@ -17,9 +19,9 @@ export default {
         if (!target) {
             return m.reply(
                 card(
-                    "ATTACK",
+                    "SERANG",
                     [
-                        `Tag/reply user yang ingin diserang.`,
+                        `Tag/reply pemain yang ingin diserang.`,
                         ``,
                         `Contoh: ${global.prefix}attack @user`
                     ],
@@ -27,50 +29,47 @@ export default {
                 )
             )
         }
-        if (target === me) {
-            return m.reply(card("ATTACK", `Tidak bisa menyerang diri sendiri. 😅`, { emoji: "⚔️" }))
-        }
+        if (target === me)
+            return m.reply(card("SERANG", "Tidak bisa menyerang diri sendiri. 😅", { emoji: "⚔️" }))
 
         const attacker = getPlayer(me)
-        if (attacker.hp <= 0) {
+        if (attacker.hp <= 0)
             return m.reply(
-                card("ATTACK", [`HP kamu 0 ❤️‍🩹`, `Heal dulu: ${global.prefix}heal`], { emoji: "⚔️" })
+                card("SERANG", [`❤️‍🩹 HP kamu 0!`, `Heal dulu: ${global.prefix}heal`], {
+                    emoji: "⚔️"
+                })
             )
-        }
 
         const tp = getPlayer(target)
-        const atk = getAtk(me)
-        // Damage acak 80%-120% dari atk
-        const dmg = Math.max(1, Math.round(atk * (0.8 + Math.random() * 0.4)))
+        const dmg = Math.max(
+            1,
+            rand(Math.floor(getAtk(attacker) * 0.8), getAtk(attacker)) - getDef(tp)
+        )
         const newHp = Math.max(0, tp.hp - dmg)
         setHp(target, newHp)
 
-        const weapon =
-            attacker.weapon && SHOP[attacker.weapon]
-                ? SHOP[attacker.weapon]
-                : { emoji: "🤜", name: "Tinju" }
+        const w = ITEMS[attacker.weapon] || { emoji: "🤜", name: "Tinju" }
 
-        // Target kalah (HP 0)
         if (newHp <= 0) {
-            const loot = Math.min(tp.money, Math.floor(Math.random() * 80) + 40)
+            const loot = Math.min(tp.money, rand(50, 120))
             if (loot > 0) {
                 addMoney(target, -loot)
                 addMoney(me, loot)
             }
-            addXp(me, 30)
-            healFull(target) // bangkit dgn HP penuh setelah kalah
+            addXp(me, 25)
+            setHp(target, maxHp(tp)) // bangkit HP penuh
 
             return m.reply(
                 card(
                     "K.O! 💀",
                     [
-                        `${weapon.emoji} ${tag(me)} mengalahkan ${tag(target)}!`,
+                        `${w.emoji} ${tag(me)} mengalahkan ${tag(target)}!`,
                         ``,
-                        `💥 Damage terakhir: ${dmg}`,
+                        `💥 Damage: ${dmg}`,
                         `💰 Loot: $${loot}`,
-                        `✨ +30 XP`,
+                        `✨ +25 XP`,
                         ``,
-                        `${tag(target)} bangkit dgn HP penuh.`
+                        `${tag(target)} bangkit dengan HP penuh.`
                     ],
                     { emoji: "⚔️" }
                 ),
@@ -80,12 +79,12 @@ export default {
 
         return m.reply(
             card(
-                "ATTACK",
+                "SERANG",
                 [
-                    `${weapon.emoji} ${tag(me)} menyerang ${tag(target)}!`,
+                    `${w.emoji} ${tag(me)} menyerang ${tag(target)}!`,
                     ``,
                     `💥 Damage: ${dmg}`,
-                    `❤️ HP ${tag(target)}: ${newHp}/${tp.maxhp}`
+                    `❤️ HP ${tag(target)}: ${newHp}/${maxHp(tp)}`
                 ],
                 { emoji: "⚔️" }
             ),

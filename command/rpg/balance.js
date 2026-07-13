@@ -16,11 +16,15 @@ export default {
 
         return m.reply(
             card(
-                "BALANCE",
-                [`👤 ${tag(who)}`, ``, `💰 Money : $${p.money}`, `📈 Level : ${p.level}`],
-                {
-                    emoji: "💰"
-                }
+                "DOMPET",
+                [
+                    `👤 ${tag(who)}`,
+                    ``,
+                    `💰 Cash  : $${p.money.toLocaleString("id-ID")}`,
+                    `🏦 Bank  : $${(p.bank || 0).toLocaleString("id-ID")}`,
+                    `📈 Level : ${p.level}`
+                ],
+                { emoji: "💰" }
             ),
             { mentions: [who] }
         )

@@ -1,7 +1,8 @@
 import Button from "../../lib/button.js"
 import Loader from "../../lib/loader.js"
-import { smallcaps as sc, greeting } from "../../lib/font.js"
+import { smallcaps as sc } from "../../lib/font.js"
 import { getWeather } from "../../lib/weather.js"
+import { greetWIB, fullWIB } from "../../lib/time.js"
 
 import { resolvePn } from "../../lib/resolve.js"
 import { isRegistered, getAllUsers } from "../../lib/register.js"
@@ -62,7 +63,7 @@ export default {
         const groups = Loader.byCategory()
         const totalCmd = Loader.commandCount()
         const totalUser = getAllUsers().length
-        const greet = greeting()
+        const greet = greetWIB()
 
         // Ping bot (proses)
         const t0 = Date.now()
@@ -89,8 +90,8 @@ export default {
             `◈ ${sc("BOT")}\n` +
             `╸ ${sc("Chaeul")} 💎  ·  v${global.version}\n` +
             `╸ ${totalCmd} ${sc("perintah")}  ·  ${totalUser} ${sc("user")}\n` +
-            `╸ ${sc("uptime")} ${uptime(process.uptime())}\n` +
-            `╸ ${sc("ping bot")} : ${pingBot}ms`
+            `╸ ${sc("uptime")} ${uptime(process.uptime())}  ·  ${pingBot}ms\n` +
+            `╸ 🕒 ${fullWIB()}`
 
         // ─── Section 1: Menu Utama ───
         const mainRows = [

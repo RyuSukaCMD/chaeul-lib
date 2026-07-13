@@ -1,21 +1,17 @@
 import Button from "../../lib/button.js"
 import { card } from "../../lib/ui.js"
 import { resolvePn, tag } from "../../lib/resolve.js"
-import { getPlayer, getMoney, transferMoney, addXp } from "../../lib/rpg.js"
+import { getPlayer, getMoney, transferMoney, addXp, getAtk } from "../../lib/rpg.js"
 
-// Tantangan duel sementara (in-memory). id -> { challenger, target, bet, chat }
 const challenges = new Map()
-
-function newId() {
-    return `${Date.now()}${Math.floor(Math.random() * 1000)}`
-}
+const newId = () => `${Date.now()}${Math.floor(Math.random() * 1000)}`
 
 export default {
     command: ["duel", /^duel_accept:.*/, /^duel_decline:.*/],
 
     category: "RPG",
 
-    description: "Tantang user duel dgn taruhan money (butuh Accept)",
+    description: "Tantang pemain duel taruhan money (butuh Accept)",
 
     async run({ sock, m, command, args }) {
         const me = await resolvePn(sock, m, m.sender)
@@ -25,42 +21,36 @@ export default {
             const isAccept = command.startsWith("duel_accept:")
             const id = command.split(":")[1]
             const ch = challenges.get(id)
-
             if (!ch) return m.reply(card("DUEL", "Tantangan sudah kedaluwarsa.", { emoji: "⚔️" }))
 
-            // Hanya target yang boleh menjawab
             const clicker = await resolvePn(sock, m, m.sender)
             if (clicker !== ch.target && m.sender !== ch.target) return
 
             if (!isAccept) {
                 challenges.delete(id)
                 return m.reply(
-                    card("DUEL DITOLAK", `${tag(ch.target)} menolak duel.`, { emoji: "⚔️" }),
-                    {
-                        mentions: [ch.target]
-                    }
+                    card("DUEL DITOLAK", `🏳️ ${tag(ch.target)} menolak duel.`, { emoji: "⚔️" }),
+                    { mentions: [ch.target] }
                 )
             }
 
             challenges.delete(id)
-
-            // Pastikan kedua pihak masih punya cukup money
             if (getMoney(ch.challenger) < ch.bet || getMoney(ch.target) < ch.bet) {
                 return m.reply(
                     card("DUEL BATAL", "Salah satu pihak tidak punya cukup money.", { emoji: "⚔️" })
                 )
             }
 
-            // Adu: pemenang acak (dipengaruhi sedikit oleh level)
+            // Pemenang: bobot dari ATK + level + acak
             const cp = getPlayer(ch.challenger)
-            const tpl = getPlayer(ch.target)
-            const chWeight = cp.level + Math.random() * 5
-            const tgWeight = tpl.level + Math.random() * 5
-            const winner = chWeight >= tgWeight ? ch.challenger : ch.target
+            const tp = getPlayer(ch.target)
+            const cw = getAtk(cp) + cp.level * 3 + Math.random() * 20
+            const tw = getAtk(tp) + tp.level * 3 + Math.random() * 20
+            const winner = cw >= tw ? ch.challenger : ch.target
             const loser = winner === ch.challenger ? ch.target : ch.challenger
 
             transferMoney(loser, winner, ch.bet)
-            addXp(winner, 25)
+            addXp(winner, 30)
 
             return m.reply(
                 card(
@@ -71,7 +61,7 @@ export default {
                         ``,
                         `🏆 Pemenang: ${tag(winner)}`,
                         `💸 ${tag(loser)} kehilangan $${ch.bet}`,
-                        `✨ ${tag(winner)} +25 XP`
+                        `✨ ${tag(winner)} +30 XP`
                     ],
                     { emoji: "⚔️" }
                 ),
@@ -79,7 +69,7 @@ export default {
             )
         }
 
-        // ── Command utama: .duel @user <bet> ──
+        // ── Command utama ──
         const rawTarget = m.mentionedJid?.[0] || m.quoted?.sender
         const target = await resolvePn(sock, m, rawTarget)
         const bet = parseInt(
@@ -91,32 +81,24 @@ export default {
             return m.reply(
                 card(
                     "DUEL",
-                    [`Tag user & taruhan.`, ``, `Contoh:`, `${global.prefix}duel @user 100`],
+                    [`Tag pemain & taruhan.`, ``, `Contoh: ${global.prefix}duel @user 100`],
                     { emoji: "⚔️" }
                 )
             )
         }
-        if (target === me) {
+        if (target === me)
             return m.reply(card("DUEL", "Tidak bisa duel dengan diri sendiri. 😅", { emoji: "⚔️" }))
-        }
-        if (getMoney(me) < bet) {
+        if (getMoney(me) < bet)
             return m.reply(card("DUEL", `Money kamu tidak cukup (butuh $${bet}).`, { emoji: "⚔️" }))
-        }
-        if (getMoney(target) < bet) {
+        if (getMoney(target) < bet)
             return m.reply(
-                card("DUEL", `${tag(target)} tidak punya cukup money untuk taruhan ini.`, {
-                    emoji: "⚔️"
-                }),
-                {
-                    mentions: [target]
-                }
+                card("DUEL", `${tag(target)} tidak punya cukup money.`, { emoji: "⚔️" }),
+                { mentions: [target] }
             )
-        }
 
         const id = newId()
         challenges.set(id, { challenger: me, target, bet, chat: m.chat })
 
-        // Auto-expire 60s + tag penantang
         const t = setTimeout(async () => {
             if (challenges.has(id)) {
                 challenges.delete(id)
@@ -125,9 +107,7 @@ export default {
                         text: card(
                             "⌛ DUEL EXPIRED",
                             `${tag(me)}, tantangan duel ke ${tag(target)} kedaluwarsa.`,
-                            {
-                                emoji: "⚔️"
-                            }
+                            { emoji: "⚔️" }
                         ),
                         mentions: [me, target]
                     })

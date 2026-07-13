@@ -2,6 +2,7 @@ import Button from "../../lib/button.js"
 import Loader from "../../lib/loader.js"
 import { smallcaps as sc } from "../../lib/font.js"
 import { resolvePn } from "../../lib/resolve.js"
+import { fullWIB } from "../../lib/time.js"
 
 const CAT_ICON = {
     main: "🏠",
@@ -60,17 +61,22 @@ export default {
                 return a.localeCompare(b)
             })
 
-            let text = `╭─ ✦ ${sc("SEMUA FITUR")} ✦ ─⬣\n│\n`
+            let text =
+                `╭━━━━━━━━━━━━━━━━━━━⬣\n` +
+                `┃  📜 *${sc("SEMUA FITUR")}* ${sc("Chaeul")}\n` +
+                `┃  🕒 ${fullWIB()}\n` +
+                `╰━━━━━━━━━━━━━━━━━━━⬣\n`
+
             for (const cat of order) {
                 if (cat === "Owner" && !isCreator) continue
                 const icon = CAT_ICON[cat.toLowerCase()] || "📁"
-                text += `│ ${icon} ${sc(cat)} (${groups[cat].length})\n`
+                text += `\n┏━━〔 ${icon} ${sc(cat)} · ${groups[cat].length} 〕\n`
                 for (const it of groups[cat]) {
-                    text += `│  ◦ ${global.prefix}${it.name}\n`
+                    text += `┃ ◦ ${global.prefix}${it.name}\n`
                 }
-                text += `│\n`
+                text += `┗━━━━━━━━━━━━━⬣\n`
             }
-            text += `╰─ ${sc("Total")} : ${Loader.commandCount()} ${sc("perintah")} ─⬣`
+            text += `\n💡 ${sc("Total")} ${Loader.commandCount()} ${sc("perintah aktif")}`
 
             return Button.menu({
                 sock,
@@ -114,18 +120,19 @@ export default {
 
         let list = ""
         for (const it of items) {
-            const alias = it.aliases.length ? ` (${it.aliases.join(", ")})` : ""
-            list += `│ ◦ ${global.prefix}${it.name}${alias}\n`
-            if (it.description) list += `│    └ ${it.description}\n`
+            const alias = it.aliases.length ? `  ⌁ ${it.aliases.join(", ")}` : ""
+            list += `┃ ◦ *${global.prefix}${it.name}*${alias}\n`
+            if (it.description) list += `┃    ↳ ${it.description}\n`
         }
-        if (!items.length) list = `│ ${sc("Belum ada command")}.\n`
+        if (!items.length) list = `┃ ${sc("Belum ada command")}.\n`
 
         const body =
-            `╭─ ${icon} ${sc(realCat.toUpperCase() + " MENU")} ─⬣\n` +
-            `│\n` +
+            `╭━━━━━━━━━━━━━━━━━━━⬣\n` +
+            `┃  ${icon} *${sc(realCat.toUpperCase() + " MENU")}*\n` +
+            `┃  🕒 ${fullWIB()}\n` +
+            `┣━━━━━━━━━━━━━━━━━━━⬣\n` +
             list +
-            `│\n` +
-            `╰─ ${items.length} ${sc("perintah")} ─⬣`
+            `┗━━ ${items.length} ${sc("perintah")} ━━⬣`
 
         return Button.menu({
             sock,

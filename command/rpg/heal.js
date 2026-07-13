@@ -1,6 +1,6 @@
 import { card } from "../../lib/ui.js"
 import { resolvePn } from "../../lib/resolve.js"
-import { getPlayer, useItem, setHp, SHOP } from "../../lib/rpg.js"
+import { getPlayer, removeItem, setHp, maxHp, ITEMS } from "../../lib/rpg.js"
 
 export default {
     command: ["heal", "sembuh"],
@@ -12,25 +12,25 @@ export default {
     async run({ sock, m, args }) {
         const me = await resolvePn(sock, m, m.sender)
         const p = getPlayer(me)
+        const mhp = maxHp(p)
 
-        if (p.hp >= p.maxhp) {
+        if (p.hp >= mhp) {
             return m.reply(
-                card("HEAL", `HP kamu sudah penuh (${p.hp}/${p.maxhp}). 💪`, { emoji: "🧪" })
+                card("HEAL", `❤️ HP kamu sudah penuh (${p.hp}/${mhp}). 💪`, { emoji: "🧪" })
             )
         }
 
-        // Pilih potion (default potion biasa, atau argumen "mega")
-        const potionId = args[0]?.toLowerCase() === "mega" ? "megapotion" : "potion"
-        const potion = SHOP[potionId]
+        const potionId = args[0]?.toLowerCase() === "hi" ? "hipotion" : "potion"
+        const potion = ITEMS[potionId]
 
-        if (!useItem(me, potionId, 1)) {
+        if (!removeItem(me, potionId, 1)) {
             return m.reply(
                 card(
                     "HEAL",
                     [
                         `Kamu tidak punya ${potion.emoji} ${potion.name}.`,
                         ``,
-                        `Beli dulu: ${global.prefix}buy`
+                        `Beli: ${global.prefix}buy`
                     ],
                     { emoji: "🧪" }
                 )
@@ -38,14 +38,13 @@ export default {
         }
 
         const after = setHp(me, p.hp + potion.heal)
-
         await m.react("🧪")
         return m.reply(
             card(
                 "HEAL",
                 [
                     `${potion.emoji} Memakai ${potion.name}`,
-                    `❤️ HP: ${after.hp}/${after.maxhp} (+${potion.heal})`
+                    `❤️ HP: ${after.hp}/${mhp} (+${potion.heal})`
                 ],
                 { emoji: "🧪" }
             )
