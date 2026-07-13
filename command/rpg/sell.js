@@ -1,65 +1,82 @@
 import { card } from "../../lib/ui.js"
 import { resolvePn } from "../../lib/resolve.js"
-import { getPlayer, removeItem, addMoney, FISH } from "../../lib/rpg.js"
+import { getPlayer, removeItem, addMoney } from "../../lib/rpg.js"
+import { FISH, MUTATIONS, RARITY, fishValue, fishDisplay } from "../../lib/fish.js"
 
 const FISH_MAP = Object.fromEntries(FISH.map((f) => [f.id, f]))
+const MUT_MAP = Object.fromEntries(MUTATIONS.map((mt) => [mt.id, mt]))
+
+/** Parse inventory key "rarity_i" atau "rarity_i#mut" → { fish, mutation }. */
+function parseKey(key) {
+    const [fid, mid] = key.split("#")
+    const fish = FISH_MAP[fid]
+    if (!fish) return null
+    return { fish, mutation: mid ? MUT_MAP[mid] : null }
+}
 
 export default {
     command: ["sell", "jual"],
 
     category: "RPG",
 
-    description: "Jual ikan hasil pancing (semua / tertentu)",
+    description: "Jual ikan hasil pancing",
 
     async run({ sock, m, args }) {
         const me = await resolvePn(sock, m, m.sender)
         const p = getPlayer(me)
 
-        // Item ikan yang dimiliki
-        const owned = Object.entries(p.inventory).filter(([id]) => FISH_MAP[id])
+        // Kumpulkan semua ikan di inventory
+        const owned = Object.entries(p.inventory)
+            .map(([key, qty]) => ({ key, qty, ...parseKey(key) }))
+            .filter((x) => x.fish)
 
         if (!owned.length) {
             return m.reply(
                 card(
                     "JUAL",
-                    [
-                        `Kamu tidak punya ikan untuk dijual.`,
-                        ``,
-                        `Mancing dulu: ${global.prefix}mancing`
-                    ],
-                    {
-                        emoji: "💰"
-                    }
+                    [`Kamu tidak punya ikan.`, ``, `Mancing dulu: ${global.prefix}mancing`],
+                    { emoji: "💰" }
                 )
             )
         }
 
-        // .sell <id>  → jual jenis tertentu; .sell → jual semua
-        const targetId = args[0]?.toLowerCase()
+        // .sell all / .sell (default semua). .sell <rarity> → jual per rarity.
+        const filter = args[0]?.toLowerCase()
         let total = 0
         const lines = []
 
-        for (const [id, qty] of owned) {
-            if (targetId && id !== targetId) continue
-            const fish = FISH_MAP[id]
-            const gain = fish.price * qty
-            removeItem(me, id, qty)
+        for (const it of owned) {
+            if (filter && filter !== "all" && it.fish.rarity !== filter) continue
+            const each = fishValue(it.fish, it.mutation)
+            const gain = each * it.qty
+            removeItem(me, it.key, it.qty)
             addMoney(me, gain)
             total += gain
-            lines.push(`${fish.emoji} ${fish.name} ×${qty} → $${gain}`)
+            lines.push(
+                `${fishDisplay(it.fish, it.mutation)} ×${it.qty} → $${gain.toLocaleString("id-ID")}`
+            )
         }
 
         if (!total) {
             return m.reply(
-                card("JUAL", `Ikan "${targetId}" tidak ditemukan di tas.`, { emoji: "💰" })
+                card("JUAL", `Tidak ada ikan rarity "${filter}" untuk dijual.`, { emoji: "💰" })
             )
         }
+
+        // Batasi tampilan bila terlalu banyak
+        const shown = lines.slice(0, 12)
+        if (lines.length > 12) shown.push(`... dan ${lines.length - 12} lainnya`)
 
         await m.react("💰")
         return m.reply(
             card(
                 "JUAL IKAN",
-                [...lines, ``, `💵 Total : $${total}`, `💰 Saldo : $${getPlayer(me).money}`],
+                [
+                    ...shown,
+                    ``,
+                    `💵 Total : $${total.toLocaleString("id-ID")}`,
+                    `💰 Saldo : $${getPlayer(me).money.toLocaleString("id-ID")}`
+                ],
                 {
                     emoji: "💰"
                 }

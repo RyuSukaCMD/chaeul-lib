@@ -1,18 +1,25 @@
 import Button from "../../lib/button.js"
 import { card } from "../../lib/ui.js"
 import { resolvePn, tag } from "../../lib/resolve.js"
-import { getPlayer, addItem, addXp, rollFish, ITEMS, cdLeft, setCd, CONFIG } from "../../lib/rpg.js"
+import { getPlayer, addItem, addXp, cdLeft, setCd, CONFIG, ITEMS } from "../../lib/rpg.js"
+import {
+    RARITY,
+    PHASE_RARITIES,
+    rollRarity,
+    randomFishOf,
+    rollMutation,
+    fishValue,
+    fishDisplay
+} from "../../lib/fish.js"
 
-// Sesi minigame aktif: sessionId -> { owner, chat, order:[dir...], next, msgKey, done }
+// Sesi minigame: sid -> { owner, chat, fish, mutation, phases:[[slots]...],
+//                         phaseIdx, next, done }
 const sessions = new Map()
 
-// Arah pancing (emoji) untuk tombol
-const DIRS = ["⬆️", "⬇️", "⬅️", "➡️", "↗️", "↘️"]
+const DIRS = ["⬆️", "⬇️", "⬅️", "➡️", "↗️", "↘️", "↕️", "↔️", "🔄", "🎯"]
 
-function newId() {
-    return `${Date.now()}${Math.floor(Math.random() * 1000)}`
-}
-
+const newId = () => `${Date.now()}${Math.floor(Math.random() * 1000)}`
+const randInt = (a, b) => Math.floor(Math.random() * (b - a + 1)) + a
 function shuffle(arr) {
     const a = [...arr]
     for (let i = a.length - 1; i > 0; i--) {
@@ -21,10 +28,54 @@ function shuffle(arr) {
     }
     return a
 }
-
-function fmtWait(ms) {
+const fmtWait = (ms) => {
     const s = Math.ceil(ms / 1000)
     return s >= 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${s}s`
+}
+
+// Bangun 1 phase: array slot 0..n-1 dgn urutan klik acak & arah acak
+function buildPhase(count) {
+    const order = shuffle([...Array(count).keys()]) // urutan klik benar
+    const dirs = order.map(() => DIRS[Math.floor(Math.random() * DIRS.length)])
+    return { order, dirs }
+}
+
+// Kirim tombol untuk sebuah phase (urutan tampil diacak)
+async function sendPhaseButtons(sock, m, sess, phaseNo, totalPhases) {
+    const phase = sess.phases[sess.phaseIdx]
+    const count = phase.order.length
+    const owner = sess.owner
+
+    const buttons = []
+    for (let s = 0; s < count; s++) {
+        const clickOrder = phase.order.indexOf(s) + 1
+        buttons.push({
+            type: "quick",
+            text: `${clickOrder} ${phase.dirs[phase.order.indexOf(s)]}`,
+            id: `fish_pull:${sess.sid}:${s}`
+        })
+    }
+
+    const phaseLine = totalPhases > 1 ? `\n🌀 *Phase ${phaseNo}/${totalPhases}*` : ""
+
+    return Button.menu({
+        sock,
+        m,
+        body: card(
+            "TARIK KAIL!",
+            [
+                `${tag(owner)}, 🎯 *KLIK TOMBOL SESUAI URUTAN!*${phaseLine}`,
+                ``,
+                `Urutan: 1 → ${count}`,
+                `⏳ Cepat sebelum kabur!`
+            ],
+            { emoji: "🎣" }
+        ),
+        footer: "© Chaeul RPG",
+        mentions: [owner],
+        lock: owner,
+        buttons: shuffle(buttons)
+    })
 }
 
 export default {
@@ -42,68 +93,75 @@ export default {
             const [, sid, slotStr] = command.split(":")
             const slot = Number(slotStr)
             const sess = sessions.get(sid)
+            if (!sess || sess.done) return
 
-            if (!sess || sess.done) return // sesi habis/selesai → abaikan
-
-            // Hanya pemilik sesi
             const clicker = await resolvePn(sock, m, m.sender)
             if (clicker !== sess.owner && m.sender !== sess.owner) return
 
-            const expected = sess.order[sess.next]
+            const phase = sess.phases[sess.phaseIdx]
+            const expected = phase.order[sess.next]
 
-            // Urutan salah → ikan lepas
+            // Salah urutan → ikan lepas
             if (slot !== expected) {
                 sess.done = true
                 sessions.delete(sid)
                 return m.reply(
                     card("MANCING", "😩 Yah, ikannya lepas!\nSemoga beruntung lain kali!", {
                         emoji: "🎣"
-                    })
+                    }),
+                    { mentions: [sess.owner] }
                 )
             }
 
-            // Benar → lanjut
             sess.next++
 
-            // Belum selesai → tunggu klik berikutnya (JANGAN reply)
-            if (sess.next < sess.order.length) return
+            // Phase belum selesai → tunggu klik berikutnya (jangan reply)
+            if (sess.next < phase.order.length) return
 
-            // ── Semua urutan benar → dapat ikan ──
+            // Phase selesai → lanjut phase berikutnya bila ada
+            if (sess.phaseIdx < sess.phases.length - 1) {
+                sess.phaseIdx++
+                sess.next = 0
+                return sendPhaseButtons(sock, m, sess, sess.phaseIdx + 1, sess.phases.length)
+            }
+
+            // ── Semua phase selesai → dapat ikan ──
             sess.done = true
             sessions.delete(sid)
 
-            const p = getPlayer(me)
-            const luck = ITEMS[p.rodEquipped]?.luck || (p.inventory?.prorod ? 2 : 1)
-            const fish = rollFish(luck)
+            addItem(me, sess.fish.id + (sess.mutation ? `#${sess.mutation.id}` : ""), 1)
+            const { leveled } = addXp(me, 15 + RARITY[sess.fish.rarity].weight > 1000 ? 15 : 30)
 
-            addItem(me, fish.id, 1)
-            const { leveled } = addXp(me, 15)
+            const value = fishValue(sess.fish, sess.mutation)
+            const rar = RARITY[sess.fish.rarity]
 
             return m.reply(
                 card(
                     "MANCING BERHASIL",
                     [
-                        `🎉 Kamu menangkap:`,
-                        `${fish.emoji} *${fish.name}* (${fish.rarity})`,
+                        `🎉 ${tag(sess.owner)} menangkap:`,
+                        `${fishDisplay(sess.fish, sess.mutation)}`,
                         ``,
-                        `💰 Nilai jual : $${fish.price}`,
-                        `✨ +15 XP${leveled ? `  ·  🎊 NAIK LEVEL!` : ""}`,
+                        `${rar.emoji} Rarity : ${rar.label}`,
+                        sess.mutation
+                            ? `${sess.mutation.emoji} Mutation : ${sess.mutation.name} (×${sess.mutation.mult})`
+                            : `✧ Tanpa mutation`,
+                        `💰 Nilai : $${value.toLocaleString("id-ID")}`,
+                        leveled ? `\n🎊 NAIK LEVEL!` : ``,
                         ``,
-                        `Jual ikan: ${global.prefix}sell`
-                    ],
+                        `Jual: ${global.prefix}sell`
+                    ].filter((x) => x !== ``),
                     { emoji: "🎣" }
-                )
+                ),
+                { mentions: [sess.owner] }
             )
         }
 
         // ═══════════ Command utama: mulai memancing ═══════════
-        // Cooldown 30 detik
         const left = cdLeft(me, "fish", CONFIG.fishCooldown)
         if (left > 0) {
             return m.reply(
-                card("MANCING", `⏳ Sabar, tunggu ${fmtWait(left)} lagi sebelum memancing.`, {
-                    emoji: "🎣"
-                })
+                card("MANCING", `⏳ Sabar, tunggu ${fmtWait(left)} lagi.`, { emoji: "🎣" })
             )
         }
         setCd(me, "fish")
@@ -114,10 +172,8 @@ export default {
         )
         const msgKey = sent?.key
 
-        // 2) Setelah 5-10 detik → edit jadi "Kail bergerak!"
-        const delay = 5000 + Math.floor(Math.random() * 5000)
-        await new Promise((r) => setTimeout(r, delay))
-
+        // 2) 5-10 detik → edit jadi "Kail bergerak!"
+        await new Promise((r) => setTimeout(r, 5000 + Math.floor(Math.random() * 5000)))
         try {
             await sock.sendMessage(m.chat, {
                 text: card("MANCING", "❗ *Kail pancing bergerak!*\nBersiap menarik...", {
@@ -127,65 +183,54 @@ export default {
             })
         } catch {}
 
-        // 3) Buat urutan acak 2-6 tombol
-        const count = 2 + Math.floor(Math.random() * 5) // 2..6
+        // 3) Roll rarity dulu → tentukan ikan, mutation, jumlah button & phase
+        const p = getPlayer(me)
+        const luck = ITEMS[p.weapon]?.luck || (p.inventory?.prorod ? 2 : 1)
+        const rarity = rollRarity(luck)
+        const fish = randomFishOf(rarity)
+        const mutation = rollMutation()
+        const cfg = RARITY[rarity]
+
+        // Jumlah button per phase (rentang sesuai rarity)
+        const btnCount = () => randInt(cfg.buttons[0], cfg.buttons[1])
+
+        // Phase: rarity biasa = 1 phase; mythical+ = acak dalam rentang phases
+        let phaseCount = 1
+        if (PHASE_RARITIES.includes(rarity) && Array.isArray(cfg.phases)) {
+            phaseCount = randInt(cfg.phases[0], cfg.phases[1])
+        }
+        const phases = Array.from({ length: phaseCount }, () => buildPhase(btnCount()))
+
         const sid = newId()
+        const sess = {
+            sid,
+            owner: me,
+            chat: m.chat,
+            fish,
+            mutation,
+            phases,
+            phaseIdx: 0,
+            next: 0,
+            done: false
+        }
+        sessions.set(sid, sess)
 
-        // order[i] = slot yang harus diklik ke-i. Slot 0..count-1.
-        // Kita acak URUTAN klik yang benar, lalu tampilkan tombol dgn nomor urutan.
-        const slots = shuffle([...Array(count).keys()]) // urutan klik benar (slot demi slot)
-        // Tiap slot punya arah acak
-        const dirs = slots.map(() => DIRS[Math.floor(Math.random() * DIRS.length)])
-
-        // order = daftar slot sesuai urutan klik yang benar
-        const order = slots
-
-        sessions.set(sid, { owner: me, chat: m.chat, order, next: 0, done: false })
-
-        // Auto-expire sesi 30 detik
+        // Auto-expire 45 detik (lebih lama utk multi-phase)
         const t = setTimeout(() => {
             const s = sessions.get(sid)
             if (s && !s.done) {
                 sessions.delete(sid)
                 sock.sendMessage(m.chat, {
-                    text: card("MANCING", "⌛ Terlalu lama! Ikannya kabur. 🐟💨", { emoji: "🎣" }),
+                    text: card("MANCING", `⌛ ${tag(me)} terlalu lama! Ikannya kabur. 🐟💨`, {
+                        emoji: "🎣"
+                    }),
                     mentions: [me]
                 }).catch(() => {})
             }
-        }, 30 * 1000)
+        }, 45 * 1000)
         if (t.unref) t.unref()
 
-        // 4) Tombol: label "(urutan) (arah)". Ditampilkan dengan URUTAN ACAK
-        //    supaya user harus mencari nomor 1,2,3,... sendiri.
-        // Buat tombol per-slot: slot s harus diklik pada posisi order.indexOf(s)+1
-        const buttons = []
-        for (let s = 0; s < count; s++) {
-            const clickOrder = order.indexOf(s) + 1 // nomor urutan yg tampil
-            buttons.push({
-                type: "quick",
-                text: `${clickOrder} ${dirs[order.indexOf(s)]}`,
-                id: `fish_pull:${sid}:${s}`
-            })
-        }
-        // Acak tampilan tombol
-        const shuffledButtons = shuffle(buttons)
-
-        return Button.menu({
-            sock,
-            m,
-            body: card(
-                "TARIK KAIL!",
-                [
-                    `🎯 *KLIK TOMBOL SESUAI URUTAN* untuk menarik kail!`,
-                    ``,
-                    `Urutan: 1 → ${count}`,
-                    `⏳ 30 detik!`
-                ],
-                { emoji: "🎣" }
-            ),
-            footer: "© Chaeul RPG",
-            lock: me,
-            buttons: shuffledButtons
-        })
+        // 4) Kirim tombol phase pertama (dengan TAG user)
+        return sendPhaseButtons(sock, m, sess, 1, phaseCount)
     }
 }
