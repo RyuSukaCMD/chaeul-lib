@@ -17,6 +17,8 @@ import { getActiveEvent } from "../../lib/events.js"
 import {
     RARITY,
     PHASE_RARITIES,
+    FISH_TOTAL,
+    fishIndex,
     rollRarity,
     randomFishOf,
     rollMutation,
@@ -151,13 +153,14 @@ export default {
             releaseLock(sess.chat, sid)
 
             addItem(me, sess.fish.id + (sess.mutation ? `#${sess.mutation.id}` : ""), 1)
-            recordCatch(me, sess.fish.id)
+            const { isNew } = recordCatch(me, sess.fish.id)
             // XP: makin langka makin besar
             const xpGain = RARITY[sess.fish.rarity].weight > 1000 ? 15 : 40
             const { leveled } = addXp(me, xpGain)
 
             const value = fishValue(sess.fish, sess.mutation)
             const rar = RARITY[sess.fish.rarity]
+            const idx = fishIndex(sess.fish.id)
 
             return m.reply(
                 card(
@@ -165,6 +168,8 @@ export default {
                     [
                         `🎉 ${tag(sess.owner)} menangkap:`,
                         `${fishDisplay(sess.fish, sess.mutation)}`,
+                        // Notif ikan BARU (belum pernah tertangkap) + index katalog
+                        isNew ? `🆕 IKAN BARU! Index #${idx}/${FISH_TOTAL}` : ``,
                         ``,
                         `${rar.emoji} Rarity : ${rar.label}`,
                         sess.mutation
@@ -173,7 +178,9 @@ export default {
                         `💰 Nilai : $${value.toLocaleString("id-ID")}`,
                         leveled ? `\n🎊 NAIK LEVEL!` : ``,
                         ``,
-                        `Jual: ${global.prefix}sell`
+                        isNew
+                            ? `Koleksi baru! Cek: ${global.prefix}fishdex`
+                            : `Jual: ${global.prefix}sell`
                     ].filter((x) => x !== ``),
                     { emoji: "🎣" }
                 ),
