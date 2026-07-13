@@ -8,7 +8,8 @@ import {
     isAdminOnly,
     disableAll,
     enableAll,
-    isAllDisabled
+    isAllDisabled,
+    isAllowed
 } from "../../lib/groupmanage.js"
 
 // Command yang tidak boleh dimatikan (agar grup tetap bisa dikelola)
@@ -86,7 +87,11 @@ export default {
                         `Command group management tetap aktif`,
                         `agar grup bisa dipulihkan.`,
                         ``,
-                        `Aktifkan lagi: ${global.prefix}enablecommand all`
+                        `💡 Bisa mengaktifkan 1 command tertentu:`,
+                        `${global.prefix}enablecommand <command>`,
+                        `(mis. ${global.prefix}enablecommand menu)`,
+                        ``,
+                        `Aktifkan semua lagi: ${global.prefix}enablecommand all`
                     ],
                     { emoji: "⚙️" }
                 )
@@ -107,19 +112,38 @@ export default {
         }
 
         if (isEnable) {
-            if (!isDisabled(m.chat, target) && !isAdminOnly(m.chat, target)) {
+            const allOff = isAllDisabled(m.chat)
+            // Bila "disable all" TIDAK aktif & command memang sudah aktif → info
+            if (!allOff && !isDisabled(m.chat, target) && !isAdminOnly(m.chat, target)) {
                 return m.reply(
                     card("ENABLE COMMAND", `Command "${target}" memang sudah aktif.`, {
                         emoji: "✅"
                     })
                 )
             }
+            // Bila sudah di-whitelist saat disable all → info
+            if (allOff && isAllowed(m.chat, target)) {
+                return m.reply(
+                    card(
+                        "ENABLE COMMAND",
+                        `Command "${target}" sudah di-whitelist (aktif meski disable all).`,
+                        { emoji: "✅" }
+                    )
+                )
+            }
             enableCommand(m.chat, target)
             await m.react("✅")
             return m.reply(
-                card("ENABLE COMMAND", `✅ Command *${target}* diaktifkan kembali.`, {
-                    emoji: "✅"
-                })
+                card(
+                    "ENABLE COMMAND",
+                    allOff
+                        ? [
+                              `✅ Command *${target}* di-whitelist!`,
+                              `Command ini tetap aktif walau *disable all* menyala.`
+                          ]
+                        : `✅ Command *${target}* diaktifkan kembali.`,
+                    { emoji: "✅" }
+                )
             )
         }
 

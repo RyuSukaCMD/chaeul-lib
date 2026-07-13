@@ -15,7 +15,7 @@ export default {
         const { isAdmin } = await checkAdmin(sock, m, isCreator)
         if (!isAdmin) return m.reply(card("GROUP", "Khusus admin grup.", { emoji: "🔒" }))
 
-        const { disabled, adminOnly, all } = listDisabled(m.chat)
+        const { disabled, adminOnly, allow, all } = listDisabled(m.chat)
 
         if (!all && !disabled.length && !adminOnly.length) {
             return m.reply(
@@ -28,6 +28,11 @@ export default {
             lines.push(`⛔ *SEMUA command dimatikan.*`)
             lines.push(`   (kecuali group management)`)
             lines.push(`   Aktifkan: ${global.prefix}enablecommand all`)
+            if (allow.length) {
+                lines.push("")
+                lines.push(`✅ *Whitelist (tetap aktif):*`)
+                lines.push(...allow.map((c) => `  ◦ ${c}`))
+            }
             lines.push("")
         }
         if (disabled.length) {

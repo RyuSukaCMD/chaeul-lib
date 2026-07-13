@@ -1,10 +1,14 @@
 import { card } from "../../lib/ui.js"
 import { resolvePn } from "../../lib/resolve.js"
 import { getPlayer, ITEMS } from "../../lib/rpg.js"
-import { FISH, MUTATIONS, fishDisplay } from "../../lib/fish.js"
+import { MUTATIONS, fishDisplay } from "../../lib/fish.js"
+import { getFishById } from "../../lib/island.js"
+import { STONE_ITEM, STONE_INFO } from "../../lib/enchant.js"
 
-const FISH_MAP = Object.fromEntries(FISH.map((f) => [f.id, f]))
 const MUT_MAP = Object.fromEntries(MUTATIONS.map((mt) => [mt.id, mt]))
+// Peta item id stone → info (untuk tampilan inventory)
+const STONE_MAP = {}
+for (const t of ["common", "uncommon", "rare"]) STONE_MAP[STONE_ITEM[t]] = STONE_INFO[t]
 
 export default {
     command: ["inventory", "inv", "tas"],
@@ -32,10 +36,13 @@ export default {
 
         for (const [key, qty] of Object.entries(p.inventory || {})) {
             const [fid, mid] = key.split("#")
-            if (FISH_MAP[fid]) {
-                const disp = fishDisplay(FISH_MAP[fid], mid ? MUT_MAP[mid] : null)
+            const fish = getFishById(fid)
+            if (fish) {
+                const disp = fishDisplay(fish, mid ? MUT_MAP[mid] : null)
                 fishes.push(`  ${disp} ×${qty}`)
                 fishTotal += qty
+            } else if (STONE_MAP[key]) {
+                gear.push(`  ${STONE_MAP[key].emoji} ${STONE_MAP[key].name} ×${qty}`)
             } else if (ITEMS[key]) {
                 gear.push(`  ${ITEMS[key].emoji} ${ITEMS[key].name} ×${qty}`)
             } else {

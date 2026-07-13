@@ -1,16 +1,16 @@
 import { card } from "../../lib/ui.js"
 import { resolvePn } from "../../lib/resolve.js"
 import { getPlayer, removeItem, addMoney } from "../../lib/rpg.js"
-import { FISH, MUTATIONS, RARITY, fishValue, fishDisplay } from "../../lib/fish.js"
-import { getActiveEvent } from "../../lib/events.js"
+import { MUTATIONS, fishValue, fishDisplay } from "../../lib/fish.js"
+import { getFishById } from "../../lib/island.js"
+import { getStackedEffect } from "../../lib/events.js"
 
-const FISH_MAP = Object.fromEntries(FISH.map((f) => [f.id, f]))
 const MUT_MAP = Object.fromEntries(MUTATIONS.map((mt) => [mt.id, mt]))
 
-/** Parse inventory key "rarity_i" atau "rarity_i#mut" → { fish, mutation }. */
+/** Parse inventory key "island_i" atau "island_i#mut" → { fish, mutation }. */
 function parseKey(key) {
     const [fid, mid] = key.split("#")
-    const fish = FISH_MAP[fid]
+    const fish = getFishById(fid)
     if (!fish) return null
     return { fish, mutation: mid ? MUT_MAP[mid] : null }
 }
@@ -43,9 +43,8 @@ export default {
 
         // .sell all / .sell (default semua). .sell <rarity> → jual per rarity.
         const filter = args[0]?.toLowerCase()
-        // Buff harga jual saat event Market Boom
-        const ev = getActiveEvent()
-        const priceMult = ev?.effect?.money || 1
+        // Buff harga jual saat event Market Boom (gabungan stack)
+        const priceMult = getStackedEffect().money || 1
 
         let total = 0
         const lines = []

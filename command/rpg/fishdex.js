@@ -1,11 +1,8 @@
 import { card } from "../../lib/ui.js"
 import { resolvePn, tag } from "../../lib/resolve.js"
 import { getDex } from "../../lib/rpg.js"
-import { FISH, RARITY, RARITY_ORDER } from "../../lib/fish.js"
-
-// Kelompokkan ikan per rarity sekali (dipakai ulang)
-const byRarity = {}
-for (const f of FISH) (byRarity[f.rarity] ||= []).push(f)
+import { RARITY } from "../../lib/fish.js"
+import { ISLANDS, ISLAND_ORDER, ISLAND_CATALOG, islandFishTotal } from "../../lib/island.js"
 
 function bar(cur, max, len = 10) {
     const filled = Math.max(0, Math.min(len, Math.round((cur / max) * len)))
@@ -17,43 +14,51 @@ export default {
 
     category: "RPG",
 
-    description: "Lihat koleksi ikan yang pernah ditangkap",
+    description: "Lihat koleksi ikan per island (index per-island)",
 
     async run({ sock, m, args }) {
         const rawTarget = m.mentionedJid?.[0] || m.quoted?.sender || m.sender
         const who = await resolvePn(sock, m, rawTarget)
         const dex = getDex(who)
 
-        // .fishdex <rarity> → detail daftar ikan rarity itu
+        // .fishdex <island> → detail ikan di island itu
         const wanted = args[0]?.toLowerCase()
-        if (wanted && RARITY[wanted]) {
-            const pool = byRarity[wanted] || []
+        const islandId = ISLAND_ORDER.find(
+            (id) => id === wanted || ISLANDS[id].name.toLowerCase().includes(wanted || "___")
+        )
+
+        if (islandId) {
+            const info = ISLANDS[islandId]
+            const pool = ISLAND_CATALOG[islandId]
             const lines = pool.map((f) => {
                 const got = dex[f.id]
-                return got ? `✅ ${f.emoji} ${f.name} ×${got}` : `⬛ ??? (belum tertangkap)`
+                const r = RARITY[f.rarity]
+                return got
+                    ? `#${f.index} ✅ ${r.emoji} ${f.emoji} ${f.name} ×${got}`
+                    : `#${f.index} ⬛ ??? (belum tertangkap)`
             })
             const caught = pool.filter((f) => dex[f.id]).length
-            const shown = lines.slice(0, 25)
-            if (lines.length > 25) shown.push(`... (${lines.length - 25} lagi)`)
             return m.reply(
                 card(
-                    `FISHDEX · ${RARITY[wanted].label}`,
-                    [`${RARITY[wanted].emoji} ${caught}/${pool.length} tertangkap`, ``, ...shown],
+                    `FISHDEX · ${info.name}`,
+                    [`${info.emoji} ${caught}/${pool.length} tertangkap`, ``, ...lines],
                     { emoji: "📖" }
                 )
             )
         }
 
-        // Ringkasan semua rarity
+        // Ringkasan semua island
         let totalCaught = 0
-        const totalFish = FISH.length
+        let totalFish = 0
         const lines = []
-        for (const r of RARITY_ORDER) {
-            const pool = byRarity[r] || []
+        for (const id of ISLAND_ORDER) {
+            const info = ISLANDS[id]
+            const pool = ISLAND_CATALOG[id]
             const caught = pool.filter((f) => dex[f.id]).length
             totalCaught += caught
+            totalFish += pool.length
             const pct = Math.round((caught / pool.length) * 100)
-            lines.push(`${RARITY[r].emoji} *${RARITY[r].label}*  ${caught}/${pool.length}`)
+            lines.push(`${info.emoji} *${info.name}*  ${caught}/${pool.length}`)
             lines.push(`   ${bar(caught, pool.length)} ${pct}%`)
         }
 
@@ -68,7 +73,8 @@ export default {
                     ``,
                     ...lines,
                     ``,
-                    `Detail: ${global.prefix}fishdex <rarity>`
+                    `Detail: ${global.prefix}fishdex <island>`,
+                    `Contoh: ${global.prefix}fishdex coral`
                 ],
                 { emoji: "📖" }
             ),

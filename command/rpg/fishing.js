@@ -8,26 +8,29 @@ import {
     cdLeft,
     setCd,
     CONFIG,
-    ITEMS,
     rodLuck,
     rodReel,
-    recordCatch
+    recordCatch,
+    getIsland,
+    getEnchantId,
+    getPity,
+    bumpPity,
+    resetPity
 } from "../../lib/rpg.js"
-import { getActiveEvent } from "../../lib/events.js"
+import { getStackedEffect } from "../../lib/events.js"
+import { RARITY, PHASE_RARITIES, rollMutation, fishValue, fishDisplay } from "../../lib/fish.js"
 import {
-    RARITY,
-    PHASE_RARITIES,
-    FISH_TOTAL,
-    fishIndex,
-    rollRarity,
-    randomFishOf,
-    rollMutation,
-    fishValue,
-    fishDisplay
-} from "../../lib/fish.js"
+    ISLANDS,
+    ISLAND_CATALOG,
+    randomIslandFish,
+    rollIslandRarity,
+    isRarePlus,
+    islandFishTotal,
+    fishIslandIndex
+} from "../../lib/island.js"
+import { enchantEffect, STONE_INFO } from "../../lib/enchant.js"
 
-// Sesi minigame: sid -> { owner, chat, fish, mutation, phases:[[slots]...],
-//                         phaseIdx, next, done }
+// Sesi minigame: sid -> { owner, chat, island, fishes:[{fish,mutation}], ... }
 const sessions = new Map()
 
 // Kunci per-grup: hanya 1 user boleh mancing dalam satu grup pada satu waktu.
@@ -56,16 +59,17 @@ const fmtWait = (ms) => {
 
 // Bangun 1 phase: array slot 0..n-1 dgn urutan klik acak & arah acak
 function buildPhase(count) {
-    const order = shuffle([...Array(count).keys()]) // urutan klik benar
+    const order = shuffle([...Array(count).keys()])
     const dirs = order.map(() => DIRS[Math.floor(Math.random() * DIRS.length)])
-    return { order, dirs }
+    return { order, dirs, next: 0 }
 }
 
-// Kirim tombol untuk sebuah phase (urutan tampil diacak)
-async function sendPhaseButtons(sock, m, sess, phaseNo, totalPhases) {
+// Kirim tombol untuk phase aktif (urutan tampil diacak)
+async function sendPhaseButtons(sock, m, sess) {
     const phase = sess.phases[sess.phaseIdx]
     const count = phase.order.length
     const owner = sess.owner
+    const totalPhases = sess.phases.length
 
     const buttons = []
     for (let s = 0; s < count; s++) {
@@ -77,7 +81,7 @@ async function sendPhaseButtons(sock, m, sess, phaseNo, totalPhases) {
         })
     }
 
-    const phaseLine = totalPhases > 1 ? `\n🌀 *Phase ${phaseNo}/${totalPhases}*` : ""
+    const phaseLine = totalPhases > 1 ? `\n🌀 *Phase ${sess.phaseIdx + 1}/${totalPhases}*` : ""
 
     return Button.menu({
         sock,
@@ -120,7 +124,7 @@ export default {
             if (clicker !== sess.owner && m.sender !== sess.owner) return
 
             const phase = sess.phases[sess.phaseIdx]
-            const expected = phase.order[sess.next]
+            const expected = phase.order[phase.next]
 
             // Salah urutan → ikan lepas
             if (slot !== expected) {
@@ -135,51 +139,76 @@ export default {
                 )
             }
 
-            sess.next++
+            phase.next++
 
-            // Phase belum selesai → tunggu klik berikutnya (jangan reply)
-            if (sess.next < phase.order.length) return
+            // Phase belum selesai → tunggu klik berikutnya
+            if (phase.next < phase.order.length) return
 
             // Phase selesai → lanjut phase berikutnya bila ada
             if (sess.phaseIdx < sess.phases.length - 1) {
                 sess.phaseIdx++
-                sess.next = 0
-                return sendPhaseButtons(sock, m, sess, sess.phaseIdx + 1, sess.phases.length)
+                return sendPhaseButtons(sock, m, sess)
             }
 
-            // ── Semua phase selesai → dapat ikan ──
+            // ── Semua phase selesai → dapat ikan(-ikan) ──
             sess.done = true
             sessions.delete(sid)
             releaseLock(sess.chat, sid)
 
-            addItem(me, sess.fish.id + (sess.mutation ? `#${sess.mutation.id}` : ""), 1)
-            const { isNew } = recordCatch(me, sess.fish.id)
-            // XP: makin langka makin besar
-            const xpGain = RARITY[sess.fish.rarity].weight > 1000 ? 15 : 40
-            const { leveled } = addXp(me, xpGain)
+            const ev = getStackedEffect()
+            const lines = []
+            let totalValue = 0
+            let anyNew = false
+            let anyLevel = false
 
-            const value = fishValue(sess.fish, sess.mutation)
-            const rar = RARITY[sess.fish.rarity]
-            const idx = fishIndex(sess.fish.id)
+            for (const catchItem of sess.fishes) {
+                const { fish, mutation } = catchItem
+                addItem(me, fish.id + (mutation ? `#${mutation.id}` : ""), 1)
+                const { isNew } = recordCatch(me, fish.id)
+                if (isNew) anyNew = true
+
+                const xpGain = RARITY[fish.rarity].weight > 1000 ? 15 : 40
+                const { leveled } = addXp(me, xpGain)
+                if (leveled) anyLevel = true
+
+                let value = fishValue(fish, mutation)
+                if (ev.money > 1) value = Math.round(value * ev.money) // Market Boom
+                totalValue += value
+
+                const rar = RARITY[fish.rarity]
+                const idx = fishIslandIndex(fish.id)
+                const total = islandFishTotal(sess.island)
+
+                lines.push(`${fishDisplay(fish, mutation)}`)
+                if (isNew) lines.push(`🆕 IKAN BARU! Index #${idx}/${total}`)
+                lines.push(`${rar.emoji} ${rar.label} • 💰 $${value.toLocaleString("id-ID")}`)
+                lines.push(``)
+            }
+
+            // Bonus enchant stone drop
+            if (sess.stoneDrop) {
+                addItem(me, sess.stoneDrop.item, 1)
+                lines.push(`🎁 BONUS: ${sess.stoneDrop.emoji} ${sess.stoneDrop.name}!`)
+                lines.push(``)
+            }
+
+            const header =
+                sess.fishes.length > 1
+                    ? `🎉🎉 ${tag(sess.owner)} DOUBLE CATCH!`
+                    : `🎉 ${tag(sess.owner)} menangkap:`
 
             return m.reply(
                 card(
                     "MANCING BERHASIL",
                     [
-                        `🎉 ${tag(sess.owner)} menangkap:`,
-                        `${fishDisplay(sess.fish, sess.mutation)}`,
-                        // Notif ikan BARU (belum pernah tertangkap) + index katalog
-                        isNew ? `🆕 IKAN BARU! Index #${idx}/${FISH_TOTAL}` : ``,
+                        header,
+                        `${ISLANDS[sess.island].emoji} ${ISLANDS[sess.island].name}`,
                         ``,
-                        `${rar.emoji} Rarity : ${rar.label}`,
-                        sess.mutation
-                            ? `${sess.mutation.emoji} Mutation : ${sess.mutation.name} (×${sess.mutation.mult})`
-                            : `✧ Tanpa mutation`,
-                        `💰 Nilai : $${value.toLocaleString("id-ID")}`,
-                        leveled ? `\n🎊 NAIK LEVEL!` : ``,
-                        ``,
-                        isNew
-                            ? `Koleksi baru! Cek: ${global.prefix}fishdex`
+                        ...lines,
+                        `💰 Total : $${totalValue.toLocaleString("id-ID")}`,
+                        anyLevel ? `🎊 NAIK LEVEL!` : ``,
+                        anyNew
+                            ? `Cek koleksi: ${global.prefix}fishdex`
                             : `Jual: ${global.prefix}sell`
                     ].filter((x) => x !== ``),
                     { emoji: "🎣" }
@@ -189,21 +218,23 @@ export default {
         }
 
         // ═══════════ Command utama: mulai memancing ═══════════
-        // Kunci per-grup: hanya 1 orang boleh mancing di grup pada satu waktu.
         if (m.isGroup && groupLock.has(m.chat)) {
             return m.reply(
                 card(
                     "MANCING",
                     "🎣 Ada yang sedang memancing di grup ini.\nTunggu sampai selesai ya!",
-                    {
-                        emoji: "⏳"
-                    }
+                    { emoji: "⏳" }
                 )
             )
         }
 
-        const activeEv = getActiveEvent()
-        const noCd = activeEv?.effect?.noFishCd
+        const p = getPlayer(me)
+        const island = getIsland(me)
+        const ench = enchantEffect(getEnchantId(me))
+        const ev = getStackedEffect()
+
+        // Cooldown (event Frenzy = tanpa CD)
+        const noCd = ev.noFishCd
         const left = noCd ? 0 : cdLeft(me, "fish", CONFIG.fishCooldown)
         if (left > 0) {
             return m.reply(
@@ -212,20 +243,23 @@ export default {
         }
         if (!noCd) setCd(me, "fish")
 
-        // Data pemain & rod (luck + reel speed)
-        const p = getPlayer(me)
-        const reel = rodReel(p) // mengurangi button & mempercepat waktu tunggu
-        const ev = getActiveEvent() // event buff aktif (bila ada)
+        const reel = rodReel(p)
 
         // 1) Reply "Memancing..."
         const sent = await m.reply(
-            card("MANCING", "🎣 Memancing...\nMelempar kail ke air...", { emoji: "🎣" })
+            card(
+                "MANCING",
+                `🎣 Memancing di ${ISLANDS[island].emoji} ${ISLANDS[island].name}...\nMelempar kail ke air...`,
+                { emoji: "🎣" }
+            )
         )
         const msgKey = sent?.key
 
-        // 2) Tunggu (5-10 detik) — reel speed mempercepat (min 1.5 detik)
+        // 2) Tunggu (5-10 detik) — reel speed + enchant Lightning Reel mempercepat
         const baseWait = 5000 + Math.floor(Math.random() * 5000)
-        const wait = Math.max(1500, baseWait - reel * 1500)
+        let wait = baseWait - reel * 1500
+        if (ench.reelSpeed) wait = wait * (1 - ench.reelSpeed) // -5% (Lightning Reel)
+        wait = Math.max(1500, Math.round(wait))
         await new Promise((r) => setTimeout(r, wait))
         try {
             await sock.sendMessage(m.chat, {
@@ -236,18 +270,63 @@ export default {
             })
         } catch {}
 
-        // 3) Roll rarity → ikan, mutation, jumlah button & phase
+        // 3) Hitung luck (rod × event × enchant Coral) + PITY
         let luck = rodLuck(p)
-        if (ev?.effect?.luck) luck *= ev.effect.luck
-        const rarity = rollRarity(luck)
-        const fish = randomFishOf(rarity)
-        const mutation = rollMutation(ev?.effect?.mutation || 1)
-        const cfg = RARITY[rarity]
+        if (ev.luck > 1) luck *= ev.luck
+        // Reef Shouter: boost rare di Coral Reefs
+        if (island === "coral" && ench.coralRareBoost > 1) luck *= ench.coralRareBoost
 
-        // Jumlah button per phase — dikurangi reel speed (min 1)
+        const pityKey = island // pity per-island
+        const pity = getPity(me, pityKey)
+
+        // Roll rarity (island-aware + pity)
+        const { rarity } = rollIslandRarity(island, luck, pity)
+
+        // Update pity: rare+ → reset, selain itu → +1
+        if (isRarePlus(rarity)) resetPity(me, pityKey)
+        else bumpPity(me, pityKey, 1)
+
+        // Pilih ikan. Enchant Hopeful: chance ganti dgn ikan yg belum ada di index.
+        let fish = randomIslandFish(island, rarity)
+        if (ench.newFishChance > 0 && Math.random() < ench.newFishChance) {
+            const dex = getPlayer(me).dex || {}
+            const missing = ISLAND_CATALOG[island].filter((f) => !dex[f.id])
+            if (missing.length) fish = missing[Math.floor(Math.random() * missing.length)]
+        }
+
+        // Mutation (event Golden × + enchant Gold Hand pada golden)
+        let mutation = rollMutation(ev.mutation || 1)
+        if (!mutation && ench.goldMutBoost > 1) {
+            // beri kesempatan tambahan khusus golden
+            const golden = { id: "golden", name: "Golden", emoji: "🟡", mult: 3 }
+            if (Math.random() < 0.03 * ench.goldMutBoost) mutation = golden
+        }
+
+        const fishes = [{ fish, mutation }]
+
+        // Enchant Double Reel: chance 8% dapat ikan kedua
+        if (ench.doubleCatch > 0 && Math.random() < ench.doubleCatch) {
+            const { rarity: r2 } = rollIslandRarity(island, luck, 0)
+            const fish2 = randomIslandFish(island, r2)
+            const mut2 = rollMutation(ev.mutation || 1)
+            fishes.push({ fish: fish2, mutation: mut2 })
+        }
+
+        // Enchant stone drop (Sacred Jungle → rare stone chance)
+        let stoneDrop = null
+        const isc = ISLANDS[island]
+        if (isc.rareStoneChance > 0 && Math.random() < isc.rareStoneChance) {
+            stoneDrop = STONE_INFO.rare
+        } else if (Math.random() < 0.04) {
+            // 4% common stone di island manapun
+            stoneDrop = STONE_INFO.common
+        }
+
+        // Jumlah button per phase (dikurangi reel, min 1)
+        const cfg = RARITY[rarity]
         const btnCount = () => Math.max(1, randInt(cfg.buttons[0], cfg.buttons[1]) - reel)
 
-        // Phase: rarity biasa = 1 phase; mythical+ = acak dalam rentang phases
+        // Phase: rarity biasa = 1 phase; mythical+ = acak dalam rentang
         let phaseCount = 1
         if (PHASE_RARITIES.includes(rarity) && Array.isArray(cfg.phases)) {
             phaseCount = randInt(cfg.phases[0], cfg.phases[1])
@@ -259,17 +338,17 @@ export default {
             sid,
             owner: me,
             chat: m.chat,
-            fish,
-            mutation,
+            island,
+            fishes,
+            stoneDrop,
             phases,
             phaseIdx: 0,
-            next: 0,
             done: false
         }
         sessions.set(sid, sess)
-        if (m.isGroup) groupLock.set(m.chat, sid) // kunci grup
+        if (m.isGroup) groupLock.set(m.chat, sid)
 
-        // Auto-expire 45 detik (lebih lama utk multi-phase)
+        // Auto-expire 45 detik
         const t = setTimeout(() => {
             const s = sessions.get(sid)
             releaseLock(m.chat, sid)
@@ -285,7 +364,7 @@ export default {
         }, 45 * 1000)
         if (t.unref) t.unref()
 
-        // 4) Kirim tombol phase pertama (dengan TAG user)
-        return sendPhaseButtons(sock, m, sess, 1, phaseCount)
+        // 4) Kirim tombol phase pertama
+        return sendPhaseButtons(sock, m, sess)
     }
 }

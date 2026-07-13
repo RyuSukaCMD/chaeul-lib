@@ -1,56 +1,83 @@
 import Button from "../../lib/button.js"
 import { card } from "../../lib/ui.js"
-import { EVENTS, getActiveEvent, startEvent, endEvent } from "../../lib/events.js"
+import { EVENTS, getActiveEvents, startEvent, endEvent } from "../../lib/events.js"
 
-// Format sisa waktu event jadi teks.
 function timeLeft(endsAt) {
     const ms = endsAt - Date.now()
     if (ms <= 0) return "berakhir"
     const m = Math.floor(ms / 60000)
     const s = Math.floor((ms % 60000) / 1000)
-    return m > 0 ? `${m} menit ${s} detik` : `${s} detik`
+    return m > 0 ? `${m}m ${s}s` : `${s}s`
 }
 
-// Susun teks status panel.
 function panelBody() {
-    const active = getActiveEvent()
-    const lines = [`⚙️ Kelola event RPG sesuka hati.`, ``]
+    const active = getActiveEvents()
+    const lines = [`⚙️ Kelola event RPG. Event bisa NUMPUK (stack).`, ``]
 
-    if (active) {
-        lines.push(`🟢 EVENT AKTIF:`)
-        lines.push(`${active.name}`)
-        lines.push(`${active.desc}`)
-        lines.push(`⏳ Sisa: ${timeLeft(active.endsAt)}`)
+    if (active.length) {
+        lines.push(`🟢 EVENT AKTIF (${active.length}):`)
+        for (const ev of active) {
+            lines.push(`${ev.emoji} ${ev.name} — ⏳ ${timeLeft(ev.endsAt)}`)
+        }
     } else {
         lines.push(`⚫ Tidak ada event aktif.`)
     }
     lines.push(``)
-    lines.push(`Daftar event:`)
-    for (const ev of EVENTS) {
-        lines.push(`${ev.emoji} ${ev.name.replace(/^[^\s]+\s/, "")} — ${ev.desc}`)
-    }
+    lines.push(`Pilih aksi di daftar bawah 👇`)
     return card("RPG ADMIN PANEL", lines, { emoji: "🛠️" })
 }
 
-// Kirim panel + tombol.
 async function sendPanel(sock, m) {
-    const buttons = [
-        ...EVENTS.map((ev) => ({
-            type: "quick",
-            text: `${ev.emoji} ${ev.name.replace(/^[^\s]+\s/, "")}`,
-            id: `rpgadp_ev:${ev.id}`
-        })),
-        { type: "quick", text: "🎲 Event Acak", id: "rpgadp_random" },
-        { type: "quick", text: "🛑 Stop Event", id: "rpgadp_stop" },
-        { type: "quick", text: "🔄 Refresh", id: "rpgadp_status" }
+    const active = getActiveEvents()
+    const activeIds = new Set(active.map((e) => e.id))
+
+    // Section 1: nyalakan / perpanjang event (bisa stack)
+    const eventRows = EVENTS.map((ev) => ({
+        title: `${ev.emoji} ${ev.name}${activeIds.has(ev.id) ? " 🟢" : ""}`,
+        description: activeIds.has(ev.id) ? `Aktif — pilih untuk perpanjang` : ev.desc,
+        id: `rpgadp_ev:${ev.id}`
+    }))
+
+    // Section 2: kontrol
+    const controlRows = [
+        { title: `🎲 Event Acak`, description: `Nyalakan 1 event random`, id: `rpgadp_random` },
+        {
+            title: `🎲🎲 Stack 2 Event`,
+            description: `Nyalakan 2 event acak sekaligus`,
+            id: `rpgadp_stack`
+        }
+    ]
+
+    // Section 3: matikan event aktif (per event) + stop semua
+    const stopRows = active.map((ev) => ({
+        title: `🛑 Stop ${ev.name}`,
+        description: `Matikan event ini saja`,
+        id: `rpgadp_stop:${ev.id}`
+    }))
+    stopRows.push({
+        title: `🛑 Stop SEMUA Event`,
+        description: `Matikan semua event aktif`,
+        id: `rpgadp_stopall`
+    })
+    stopRows.push({
+        title: `🔄 Refresh Panel`,
+        description: `Perbarui status`,
+        id: `rpgadp_status`
+    })
+
+    const sections = [
+        { title: "✦ NYALAKAN / PERPANJANG EVENT", rows: eventRows },
+        { title: "✦ KONTROL CEPAT", rows: controlRows },
+        { title: "✦ MATIKAN EVENT", rows: stopRows }
     ]
 
     return Button.menu({
         sock,
         m,
         body: panelBody(),
-        footer: "© Chaeul • RPG Admin",
-        buttons
+        footer: "© Chaeul • RPG Admin Panel",
+        listTitle: "🛠️ Panel Admin RPG",
+        sections
     })
 }
 
@@ -60,8 +87,10 @@ export default {
         "rpgadmin",
         "rpgpanel",
         /^rpgadp_ev:.+$/,
+        /^rpgadp_stop:.+$/,
         "rpgadp_random",
-        "rpgadp_stop",
+        "rpgadp_stack",
+        "rpgadp_stopall",
         "rpgadp_status"
     ],
 
@@ -69,10 +98,10 @@ export default {
 
     category: "RPG",
 
-    description: "Panel admin RPG: nyalain/matiin event sesuka hati (owner only)",
+    description: "Panel admin RPG: nyalain/matiin event (bisa stack) — owner only",
 
     async run({ sock, m, command }) {
-        // ── Tombol: nyalakan event tertentu ──
+        // Nyalakan / perpanjang event tertentu (stack)
         if (command.startsWith("rpgadp_ev:")) {
             const id = command.split(":")[1]
             const ev = startEvent(id)
@@ -89,7 +118,19 @@ export default {
             return sendPanel(sock, m)
         }
 
-        // ── Tombol: event acak ──
+        // Stop event tertentu
+        if (command.startsWith("rpgadp_stop:")) {
+            const id = command.split(":")[1]
+            const ev = EVENTS.find((e) => e.id === id)
+            endEvent(id)
+            await m.react("🛑")
+            await m.reply(
+                card("EVENT DIMATIKAN", [`${ev ? ev.name : id} dihentikan.`], { emoji: "🛑" })
+            )
+            return sendPanel(sock, m)
+        }
+
+        // Event acak
         if (command === "rpgadp_random") {
             const ev = startEvent()
             await m.react("🎲")
@@ -103,22 +144,31 @@ export default {
             return sendPanel(sock, m)
         }
 
-        // ── Tombol: stop event ──
-        if (command === "rpgadp_stop") {
-            const active = getActiveEvent()
-            endEvent()
-            await m.react("🛑")
+        // Stack 2 event acak
+        if (command === "rpgadp_stack") {
+            const first = startEvent()
+            const others = EVENTS.filter((e) => e.id !== first?.id)
+            const second = startEvent(others[Math.floor(Math.random() * others.length)].id)
+            await m.react("🔥")
             await m.reply(
                 card(
-                    "EVENT DIMATIKAN",
-                    active ? [`${active.name} dihentikan.`] : [`Tidak ada event yang aktif.`],
-                    { emoji: "🛑" }
+                    "STACK EVENT DINYALAKAN",
+                    [`🔥 2 event sekaligus!`, `${first.name}`, `${second.name}`],
+                    { emoji: "🔥" }
                 )
             )
             return sendPanel(sock, m)
         }
 
-        // ── Tombol: refresh / status / command utama ──
+        // Stop semua
+        if (command === "rpgadp_stopall") {
+            endEvent()
+            await m.react("🛑")
+            await m.reply(card("EVENT DIMATIKAN", [`Semua event dihentikan.`], { emoji: "🛑" }))
+            return sendPanel(sock, m)
+        }
+
+        // Refresh / command utama
         return sendPanel(sock, m)
     }
 }
