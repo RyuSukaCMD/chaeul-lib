@@ -1,121 +1,156 @@
 import Button from "../../lib/button.js"
 import { card } from "../../lib/ui.js"
 import { resolvePn } from "../../lib/resolve.js"
-import { getPlayer, getRod, getEnchantId, setEnchant, removeItem } from "../../lib/rpg.js"
-import { ITEMS } from "../../lib/rpg.js"
+import { getPlayer, getEnchantOf, setEnchantOf, removeItem, ITEMS } from "../../lib/rpg.js"
 import {
-    ENCHANTS,
-    ENCHANT_ORDER,
     STONE_ITEM,
     STONE_INFO,
+    rollEnchant,
     getEnchant,
     enchantLabel,
-    tierLabel
+    enchantTierLabel
 } from "../../lib/enchant.js"
 
+// Daftar id rod yang dimiliki player (dari inventory).
+function ownedRods(p) {
+    return Object.keys(p.inventory || {}).filter((id) => ITEMS[id]?.type === "rod")
+}
+
 export default {
-    command: ["enchant", /^enchant_do:.+$/],
+    command: ["enchant", /^enchant_pick:.+$/, /^enchant_go:.+$/, "enchant_cancel"],
 
     category: "RPG",
 
-    description: "Enchant rod pakai Enchant Stone (1 enchant per rod)",
+    description: "Enchant rod (RANDOM) pakai Enchant Stone. Enchant muncul di nama rod.",
 
-    async run({ sock, m, command, args }) {
+    async run({ sock, m, command }) {
         const me = await resolvePn(sock, m, m.sender)
         const p = getPlayer(me)
-        const rodId = getRod(p)
-        const rod = ITEMS[rodId]
         const inv = p.inventory || {}
-        const curEnchant = getEnchantId(me)
+        const stoneQty = inv[STONE_ITEM] || 0
 
-        // ── Proses enchant (dari tombol atau .enchant <id>) ──
-        let pick = null
-        if (command.startsWith("enchant_do:")) pick = command.split(":")[1]
-        else if (args[0]) pick = args[0].toLowerCase()
+        // ── Batal ──
+        if (command === "enchant_cancel") {
+            return m.reply(card("ENCHANT", "Dibatalkan. ✋", { emoji: "✨" }))
+        }
 
-        if (pick && ENCHANTS[pick]) {
-            const ench = getEnchant(pick)
-            const stoneItem = STONE_ITEM[ench.tier]
-            const stoneInfo = STONE_INFO[ench.tier]
-
-            if (curEnchant === pick) {
-                return m.reply(
-                    card("ENCHANT", `Rod-mu sudah punya enchant ${enchantLabel(pick)}.`, {
-                        emoji: "✨"
-                    })
-                )
-            }
-
-            // Butuh stone sesuai tier
-            if ((inv[stoneItem] || 0) < 1) {
+        // ── Konfirmasi & proses enchant sebuah rod ──
+        if (command.startsWith("enchant_go:")) {
+            const rodId = command.split(":")[1]
+            const rod = ITEMS[rodId]
+            if (!rod || rod.type !== "rod")
+                return m.reply(card("ENCHANT", "Rod tidak valid.", { emoji: "✨" }))
+            if (!inv[rodId])
+                return m.reply(card("ENCHANT", "Kamu tidak punya rod itu.", { emoji: "✨" }))
+            if ((inv[STONE_ITEM] || 0) < 1) {
                 return m.reply(
                     card(
                         "ENCHANT GAGAL",
                         [
-                            `${ench.emoji} ${ench.name} (${tierLabel(ench.tier)})`,
-                            `Butuh: ${stoneInfo.emoji} ${stoneInfo.name} ×1`,
-                            `Punyamu: ${inv[stoneItem] || 0}`,
-                            ``,
-                            `Dapatkan Enchant Stone dari memancing!`,
-                            ench.tier === "rare" ? `Rare stone: mancing di 🌿 Sacred Jungle.` : ``
-                        ].filter(Boolean),
-                        { emoji: "🪨" }
+                            `Butuh ${STONE_INFO.emoji} ${STONE_INFO.name} ×1.`,
+                            `Pancing di 🌿 Sacred Jungle untuk dapat!`
+                        ],
+                        { emoji: "🔮" }
                     )
                 )
             }
 
-            // Pakai stone & pasang enchant (menimpa yang lama)
-            removeItem(me, stoneItem, 1)
-            setEnchant(me, pick)
+            // Pakai stone → roll enchant acak
+            removeItem(me, STONE_ITEM, 1)
+            const old = getEnchantOf(me, rodId)
+            const newId = rollEnchant()
+            setEnchantOf(me, rodId, newId)
+            const ench = getEnchant(newId)
+
             await m.react("✨")
             return m.reply(
                 card(
                     "ENCHANT BERHASIL",
                     [
                         `${rod.emoji} ${rod.name}`,
-                        `➕ ${ench.emoji} *${ench.name}*`,
+                        `🎲 Hasil acak:`,
+                        `${ench.emoji} *${ench.name}* [${enchantTierLabel(newId)}]`,
                         `${ench.desc}`,
-                        curEnchant ? `\n(Enchant lama ${enchantLabel(curEnchant)} tergantikan)` : ``
+                        old ? `\n(Enchant lama ${enchantLabel(old)} tergantikan)` : ``,
+                        ``,
+                        `Sisa stone: ${getPlayer(me).inventory[STONE_ITEM] || 0}`
                     ].filter((x) => x !== ``),
                     { emoji: "✨" }
                 )
             )
         }
 
-        // ── Tampilkan menu enchant (list button) ──
-        const rows = ENCHANT_ORDER.map((id) => {
-            const e = ENCHANTS[id]
-            const stone = STONE_INFO[e.tier]
-            const have = inv[STONE_ITEM[e.tier]] || 0
-            const active = curEnchant === id ? " ✅" : ""
+        // ── Pilih rod → tampilkan konfirmasi ──
+        if (command.startsWith("enchant_pick:")) {
+            const rodId = command.split(":")[1]
+            const rod = ITEMS[rodId]
+            if (!rod) return m.reply(card("ENCHANT", "Rod tidak valid.", { emoji: "✨" }))
+            const cur = getEnchantOf(me, rodId)
+
+            const lines = [
+                `Rod dipilih: ${rod.emoji} ${rod.name}`,
+                `Enchant sekarang: ${cur ? enchantLabel(cur) : "Tidak ada"}`,
+                ``,
+                `Biaya: ${STONE_INFO.emoji} 1 Enchant Stone`,
+                `Enchant yang didapat *ACAK*. 🎲`
+            ]
+            if (cur) {
+                lines.push(``)
+                lines.push(`⚠️ Rod ini SUDAH ada enchant!`)
+                lines.push(`Enchant baru akan MENIMPA yang lama.`)
+            }
+            lines.push(``, `Lanjutkan?`)
+
+            return Button.menu({
+                sock,
+                m,
+                body: card("KONFIRMASI ENCHANT", lines, { emoji: "✨" }),
+                footer: "© Chaeul RPG",
+                lock: me,
+                buttons: [
+                    { type: "quick", text: "✅ Ya, Enchant!", id: `enchant_go:${rodId}` },
+                    { type: "quick", text: "❌ Batal", id: "enchant_cancel" }
+                ]
+            })
+        }
+
+        // ── Menu utama: pilih rod yang mau di-enchant ──
+        const rods = ownedRods(p)
+        if (!rods.length) {
+            return m.reply(card("ENCHANT", "Kamu belum punya rod.", { emoji: "✨" }))
+        }
+
+        const rows = rods.map((id) => {
+            const rod = ITEMS[id]
+            const cur = getEnchantOf(me, id)
+            const equipped = p.rod === id ? " (dipakai)" : ""
             return {
-                title: `${e.emoji} ${e.name} [${tierLabel(e.tier)}]${active}`,
-                description: `${e.desc} | Butuh ${stone.emoji}×1 (punya ${have})`,
-                id: `enchant_do:${id}`
+                title: `${rod.emoji} ${rod.name}${equipped}`,
+                description: cur ? `Enchant: ${enchantLabel(cur)}` : `Belum di-enchant`,
+                id: `enchant_pick:${id}`
             }
         })
-
-        const stoneLine = ["common", "uncommon", "rare"]
-            .map((t) => `${STONE_INFO[t].emoji} ${inv[STONE_ITEM[t]] || 0}`)
-            .join("  ")
-
-        const bodyLines = [
-            `🎣 Rod: ${rod.emoji} ${rod.name}`,
-            `✨ Enchant aktif: ${curEnchant ? enchantLabel(curEnchant) : "Tidak ada"}`,
-            ``,
-            `🪨 Stone: ${stoneLine}`,
-            ``,
-            `Pilih enchant di bawah (1 enchant per rod).`,
-            `Enchant baru menimpa yang lama.`
-        ]
 
         return Button.menu({
             sock,
             m,
-            body: card("ENCHANT ROD", bodyLines, { emoji: "✨" }),
+            body: card(
+                "ENCHANT ROD",
+                [
+                    `🔮 Enchant Stone: ${stoneQty}`,
+                    ``,
+                    `Enchant bersifat *ACAK* (1 stone = 1 enchant).`,
+                    `Rarity lemah lebih sering muncul.`,
+                    ``,
+                    stoneQty < 1
+                        ? `⚠️ Kamu belum punya stone. Pancing di 🌿 Sacred Jungle!`
+                        : `Pilih rod yang mau di-enchant 👇`
+                ],
+                { emoji: "✨" }
+            ),
             footer: "© Chaeul RPG",
-            listTitle: "✨ Pilih Enchant",
-            sections: [{ title: "✦ DAFTAR ENCHANT", rows }]
+            listTitle: "✨ Pilih Rod",
+            sections: [{ title: "✦ ROD KAMU", rows }]
         })
     }
 }

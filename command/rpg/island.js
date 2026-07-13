@@ -1,15 +1,7 @@
 import Button from "../../lib/button.js"
 import { card } from "../../lib/ui.js"
 import { resolvePn } from "../../lib/resolve.js"
-import {
-    getPlayer,
-    getIsland,
-    setIsland,
-    hasIsland,
-    unlockIsland,
-    addMoney,
-    getMoney
-} from "../../lib/rpg.js"
+import { getIsland, setIsland } from "../../lib/rpg.js"
 import { ISLANDS, ISLAND_ORDER, islandFishTotal } from "../../lib/island.js"
 
 export default {
@@ -17,13 +9,13 @@ export default {
 
     category: "RPG",
 
-    description: "Ganti island memancing (tiap island punya ikan berbeda)",
+    description: "Ganti island memancing (semua GRATIS, tiap island beda ikan)",
 
     async run({ sock, m, command, args }) {
         const me = await resolvePn(sock, m, m.sender)
         const cur = getIsland(me)
 
-        // ── Tombol pindah island ──
+        // ── Pindah island (tombol / .island <nama>) ──
         let target = null
         if (command.startsWith("island_go:")) target = command.split(":")[1]
         else if (args[0]) {
@@ -40,26 +32,6 @@ export default {
                     card("ISLAND", `Kamu sudah di ${info.emoji} ${info.name}.`, { emoji: "🏝️" })
                 )
             }
-            // Belum terbuka → coba beli
-            if (!hasIsland(me, target)) {
-                if (getMoney(me) < info.unlockPrice) {
-                    return m.reply(
-                        card(
-                            "ISLAND TERKUNCI",
-                            [
-                                `${info.emoji} ${info.name}`,
-                                `Harga buka: $${info.unlockPrice.toLocaleString("id-ID")}`,
-                                `Uangmu: $${getMoney(me).toLocaleString("id-ID")}`,
-                                ``,
-                                `Kumpulkan uang lebih dulu ya!`
-                            ],
-                            { emoji: "🔒" }
-                        )
-                    )
-                }
-                addMoney(me, -info.unlockPrice)
-                unlockIsland(me, target)
-            }
             setIsland(me, target)
             await m.react("🏝️")
             return m.reply(
@@ -70,40 +42,39 @@ export default {
                         `${info.emoji} *${info.name}*`,
                         `${info.desc}`,
                         `🐟 ${islandFishTotal(target)} jenis ikan`,
+                        info.stone ? `🔮 Bisa memancing Enchant Stone di sini!` : ``,
                         ``,
                         `Ketik ${global.prefix}mancing untuk memancing!`
-                    ],
+                    ].filter((x) => x !== ``),
                     { emoji: "🏝️" }
                 )
             )
         }
 
-        // ── Tampilkan daftar island (list button) ──
-        const p = getPlayer(me)
+        // ── Daftar island (list button) ──
         const rows = ISLAND_ORDER.map((id) => {
             const info = ISLANDS[id]
-            const owned = hasIsland(me, id)
             const here = id === cur ? " ✅" : ""
-            const lock = owned ? "" : ` 🔒$${info.unlockPrice.toLocaleString("id-ID")}`
             return {
-                title: `${info.emoji} ${info.name}${here}${lock}`,
+                title: `${info.emoji} ${info.name}${here}`,
                 description: `${islandFishTotal(id)} ikan • ${info.desc}`,
                 id: `island_go:${id}`
             }
         })
 
-        const bodyLines = [
-            `📍 Lokasi kamu: ${ISLANDS[cur].emoji} ${ISLANDS[cur].name}`,
-            `💰 Uang: $${(p.money || 0).toLocaleString("id-ID")}`,
-            ``,
-            `Pilih island di bawah untuk pindah.`,
-            `Island terkunci akan dibeli otomatis.`
-        ]
-
         return Button.menu({
             sock,
             m,
-            body: card("PILIH ISLAND", bodyLines, { emoji: "🗺️" }),
+            body: card(
+                "PILIH ISLAND",
+                [
+                    `📍 Lokasi kamu: ${ISLANDS[cur].emoji} ${ISLANDS[cur].name}`,
+                    ``,
+                    `Semua island GRATIS! 🎉`,
+                    `Pilih island di bawah untuk pindah.`
+                ],
+                { emoji: "🗺️" }
+            ),
             footer: "© Chaeul RPG",
             listTitle: "🗺️ Pilih Island",
             sections: [{ title: "✦ ISLAND TERSEDIA", rows }]

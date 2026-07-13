@@ -1,9 +1,10 @@
 import { card } from "../../lib/ui.js"
 import { resolvePn } from "../../lib/resolve.js"
-import { getPlayer, removeItem, addMoney } from "../../lib/rpg.js"
+import { getPlayer, removeItem, addMoney, isFav, getEnchantId } from "../../lib/rpg.js"
 import { MUTATIONS, fishValue, fishDisplay } from "../../lib/fish.js"
 import { getFishById } from "../../lib/island.js"
 import { getStackedEffect } from "../../lib/events.js"
+import { enchantEffect } from "../../lib/enchant.js"
 
 const MUT_MAP = Object.fromEntries(MUTATIONS.map((mt) => [mt.id, mt]))
 
@@ -43,15 +44,22 @@ export default {
 
         // .sell all / .sell (default semua). .sell <rarity> → jual per rarity.
         const filter = args[0]?.toLowerCase()
-        // Buff harga jual saat event Market Boom (gabungan stack)
+        // Buff harga jual: event Market Boom × enchant sellBoost
         const priceMult = getStackedEffect().money || 1
+        const sellBoost = 1 + (enchantEffect(getEnchantId(me)).sellBoost || 0)
 
         let total = 0
+        let skippedFav = 0
         const lines = []
 
         for (const it of owned) {
             if (filter && filter !== "all" && it.fish.rarity !== filter) continue
-            const each = Math.round(fishValue(it.fish, it.mutation) * priceMult)
+            // Ikan favorit TIDAK bisa dijual
+            if (isFav(me, it.fish.id)) {
+                skippedFav++
+                continue
+            }
+            const each = Math.round(fishValue(it.fish, it.mutation) * priceMult * sellBoost)
             const gain = each * it.qty
             removeItem(me, it.key, it.qty)
             addMoney(me, gain)
@@ -63,7 +71,13 @@ export default {
 
         if (!total) {
             return m.reply(
-                card("JUAL", `Tidak ada ikan rarity "${filter}" untuk dijual.`, { emoji: "💰" })
+                card(
+                    "JUAL",
+                    skippedFav
+                        ? `Semua ikanmu di-favorite (⭐) jadi tidak dijual.\nHapus favorit: ${global.prefix}fishfav`
+                        : `Tidak ada ikan rarity "${filter}" untuk dijual.`,
+                    { emoji: "💰" }
+                )
             )
         }
 
@@ -78,9 +92,10 @@ export default {
                 [
                     ...shown,
                     ``,
+                    skippedFav ? `⭐ ${skippedFav} ikan favorit dilindungi (tidak dijual)` : ``,
                     `💵 Total : $${total.toLocaleString("id-ID")}`,
                     `💰 Saldo : $${getPlayer(me).money.toLocaleString("id-ID")}`
-                ],
+                ].filter((x) => x !== ""),
                 {
                     emoji: "💰"
                 }
