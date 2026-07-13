@@ -2,6 +2,7 @@ import { card } from "../../lib/ui.js"
 import { resolvePn } from "../../lib/resolve.js"
 import { getPlayer, removeItem, addMoney } from "../../lib/rpg.js"
 import { FISH, MUTATIONS, RARITY, fishValue, fishDisplay } from "../../lib/fish.js"
+import { getActiveEvent } from "../../lib/events.js"
 
 const FISH_MAP = Object.fromEntries(FISH.map((f) => [f.id, f]))
 const MUT_MAP = Object.fromEntries(MUTATIONS.map((mt) => [mt.id, mt]))
@@ -42,12 +43,16 @@ export default {
 
         // .sell all / .sell (default semua). .sell <rarity> → jual per rarity.
         const filter = args[0]?.toLowerCase()
+        // Buff harga jual saat event Market Boom
+        const ev = getActiveEvent()
+        const priceMult = ev?.effect?.money || 1
+
         let total = 0
         const lines = []
 
         for (const it of owned) {
             if (filter && filter !== "all" && it.fish.rarity !== filter) continue
-            const each = fishValue(it.fish, it.mutation)
+            const each = Math.round(fishValue(it.fish, it.mutation) * priceMult)
             const gain = each * it.qty
             removeItem(me, it.key, it.qty)
             addMoney(me, gain)

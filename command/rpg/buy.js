@@ -49,7 +49,10 @@ export default {
 
             if (item.type === "weapon") updatePlayer(me, { weapon: id })
             else if (item.type === "armor") updatePlayer(me, { armor: id })
-            else if (item.type === "misc" && item.energy) addEnergy(me, item.energy)
+            else if (item.type === "rod") {
+                addItem(me, id, 1)
+                updatePlayer(me, { rod: id }) // rod baru langsung dipakai
+            } else if (item.type === "misc" && item.energy) addEnergy(me, item.energy)
             else addItem(me, id, 1)
 
             const equipNote =
@@ -57,7 +60,9 @@ export default {
                     ? "\n⚔️ Senjata terpasang."
                     : item.type === "armor"
                       ? "\n🛡️ Armor terpasang."
-                      : ""
+                      : item.type === "rod"
+                        ? "\n🎣 Pancing terpasang."
+                        : ""
 
             await m.react("✅")
             return m.reply(

@@ -1,7 +1,19 @@
 import Button from "../../lib/button.js"
 import { card } from "../../lib/ui.js"
 import { resolvePn, tag } from "../../lib/resolve.js"
-import { getPlayer, addItem, addXp, cdLeft, setCd, CONFIG, ITEMS } from "../../lib/rpg.js"
+import {
+    getPlayer,
+    addItem,
+    addXp,
+    cdLeft,
+    setCd,
+    CONFIG,
+    ITEMS,
+    rodLuck,
+    rodReel,
+    recordCatch
+} from "../../lib/rpg.js"
+import { getActiveEvent } from "../../lib/events.js"
 import {
     RARITY,
     PHASE_RARITIES,
@@ -130,7 +142,10 @@ export default {
             sessions.delete(sid)
 
             addItem(me, sess.fish.id + (sess.mutation ? `#${sess.mutation.id}` : ""), 1)
-            const { leveled } = addXp(me, 15 + RARITY[sess.fish.rarity].weight > 1000 ? 15 : 30)
+            recordCatch(me, sess.fish.id)
+            // XP: makin langka makin besar
+            const xpGain = RARITY[sess.fish.rarity].weight > 1000 ? 15 : 40
+            const { leveled } = addXp(me, xpGain)
 
             const value = fishValue(sess.fish, sess.mutation)
             const rar = RARITY[sess.fish.rarity]
@@ -158,13 +173,20 @@ export default {
         }
 
         // ═══════════ Command utama: mulai memancing ═══════════
-        const left = cdLeft(me, "fish", CONFIG.fishCooldown)
+        const activeEv = getActiveEvent()
+        const noCd = activeEv?.effect?.noFishCd
+        const left = noCd ? 0 : cdLeft(me, "fish", CONFIG.fishCooldown)
         if (left > 0) {
             return m.reply(
                 card("MANCING", `⏳ Sabar, tunggu ${fmtWait(left)} lagi.`, { emoji: "🎣" })
             )
         }
-        setCd(me, "fish")
+        if (!noCd) setCd(me, "fish")
+
+        // Data pemain & rod (luck + reel speed)
+        const p = getPlayer(me)
+        const reel = rodReel(p) // mengurangi button & mempercepat waktu tunggu
+        const ev = getActiveEvent() // event buff aktif (bila ada)
 
         // 1) Reply "Memancing..."
         const sent = await m.reply(
@@ -172,8 +194,10 @@ export default {
         )
         const msgKey = sent?.key
 
-        // 2) 5-10 detik → edit jadi "Kail bergerak!"
-        await new Promise((r) => setTimeout(r, 5000 + Math.floor(Math.random() * 5000)))
+        // 2) Tunggu (5-10 detik) — reel speed mempercepat (min 1.5 detik)
+        const baseWait = 5000 + Math.floor(Math.random() * 5000)
+        const wait = Math.max(1500, baseWait - reel * 1500)
+        await new Promise((r) => setTimeout(r, wait))
         try {
             await sock.sendMessage(m.chat, {
                 text: card("MANCING", "❗ *Kail pancing bergerak!*\nBersiap menarik...", {
@@ -183,16 +207,16 @@ export default {
             })
         } catch {}
 
-        // 3) Roll rarity dulu → tentukan ikan, mutation, jumlah button & phase
-        const p = getPlayer(me)
-        const luck = ITEMS[p.weapon]?.luck || (p.inventory?.prorod ? 2 : 1)
+        // 3) Roll rarity → ikan, mutation, jumlah button & phase
+        let luck = rodLuck(p)
+        if (ev?.effect?.luck) luck *= ev.effect.luck
         const rarity = rollRarity(luck)
         const fish = randomFishOf(rarity)
-        const mutation = rollMutation()
+        const mutation = rollMutation(ev?.effect?.mutation || 1)
         const cfg = RARITY[rarity]
 
-        // Jumlah button per phase (rentang sesuai rarity)
-        const btnCount = () => randInt(cfg.buttons[0], cfg.buttons[1])
+        // Jumlah button per phase — dikurangi reel speed (min 1)
+        const btnCount = () => Math.max(1, randInt(cfg.buttons[0], cfg.buttons[1]) - reel)
 
         // Phase: rarity biasa = 1 phase; mythical+ = acak dalam rentang phases
         let phaseCount = 1
