@@ -1,3 +1,5 @@
+import { card, status } from "../../lib/ui.js"
+
 export default {
     command: ["autovoice"],
 
@@ -9,9 +11,12 @@ export default {
 
     async run({ m }) {
         global.settings.autovoice = !global.settings.autovoice
-
         if (global.settings.autovoice) global.settings.autotyping = false
 
-        m.reply(`Auto Voice: ${global.settings.autovoice ? "ON ✅" : "OFF ❌"}`)
+        await m.react(global.settings.autovoice ? "✅" : "❌")
+
+        return m.reply(
+            card("AUTO VOICE", status("Auto Voice", global.settings.autovoice), { emoji: "🎙️" })
+        )
     }
 }

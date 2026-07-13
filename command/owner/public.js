@@ -1,3 +1,5 @@
+import { card } from "../../lib/ui.js"
+
 export default {
     name: "Public",
 
@@ -10,10 +12,14 @@ export default {
     owner: true,
 
     async run({ m }) {
-        if (global.settings.public) return m.reply("Already in public mode.")
+        if (global.settings.public) {
+            return m.reply(card("PUBLIC MODE", "Bot sudah dalam mode public.", { emoji: "🌐" }))
+        }
 
         global.settings.public = true
 
-        m.reply("✅ Public mode enabled.")
+        await m.react("🌐")
+
+        return m.reply(card("PUBLIC MODE", "✅ Mode public diaktifkan.", { emoji: "🌐" }))
     }
 }

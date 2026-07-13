@@ -1,4 +1,5 @@
 import fs from "fs"
+import { card } from "../../lib/ui.js"
 
 export default {
     command: ["debug"],
@@ -7,7 +8,7 @@ export default {
 
     category: "Owner",
 
-    description: "Debug Event",
+    description: "Debug Event (simpan event berikutnya ke file)",
 
     async run({ m }) {
         if (!fs.existsSync("./logbot")) fs.mkdirSync("./logbot")
@@ -16,18 +17,16 @@ export default {
 
         global.debugEvent = {
             enabled: true,
-
             owner: m.sender,
-
             file
         }
 
+        await m.react("🐛")
+
         return m.reply(
-            `✅ Debug aktif.
-
-Event berikutnya akan disimpan ke:
-
-${file}`
+            card("DEBUG", ["✅ Debug aktif.", "", "Event berikutnya disimpan ke:", file], {
+                emoji: "🐛"
+            })
         )
     }
 }

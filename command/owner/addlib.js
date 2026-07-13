@@ -1,5 +1,6 @@
 import fs from "fs"
 import path from "path"
+import { card } from "../../lib/ui.js"
 
 const waiting = new Map()
 
@@ -42,7 +43,10 @@ export default {
     category: "Owner",
     description: "Tambah Library",
     async run({ sock, m, args }) {
-        if (!args[0]) return m.reply(`Contoh:\n${global.prefix}addlib button.js`)
+        if (!args[0])
+            return m.reply(
+                card("ADD LIB", ["Contoh:", `${global.prefix}addlib button.js`], { emoji: "📚" })
+            )
 
         const fileName = path.basename(args[0])
         const target = `./lib/${fileName}`
@@ -58,7 +62,12 @@ export default {
                     fs.renameSync(target, `${backupDir}/${wib()}_${fileName}`)
                 }
                 fs.writeFileSync(target, buffer)
-                return m.reply(`✅ Library berhasil disimpan.\n📁 ${fileName}`)
+                return m.reply(
+                    card("ADD LIB", [`✅ Library disimpan.`, `📁 ${fileName}`], {
+                        emoji: "📚",
+                        footer: "⚠️ lib/ di-sync dari chaeul-lib; ubah permanen di sana."
+                    })
+                )
             } catch (e) {
                 console.error(e)
                 return m.reply(String(e))
@@ -73,17 +82,25 @@ export default {
         if (pastedCode) {
             try {
                 const decoded = decodeWaCode(pastedCode)
-                if (!decoded) return m.reply("❌ Kode kosong setelah decode.")
+                if (!decoded)
+                    return m.reply(card("ADD LIB", "Kode kosong setelah decode.", { emoji: "📚" }))
 
                 if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir)
                 if (fs.existsSync(target)) {
                     fs.renameSync(target, `${backupDir}/${wib()}_${fileName}`)
                 }
                 fs.writeFileSync(target, decoded, "utf8")
-                return m.reply(`✅ Library berhasil disimpan.\n📁 ${fileName}`)
+                return m.reply(
+                    card("ADD LIB", [`✅ Library disimpan.`, `📁 ${fileName}`], {
+                        emoji: "📚",
+                        footer: "⚠️ lib/ di-sync dari chaeul-lib; ubah permanen di sana."
+                    })
+                )
             } catch (e) {
                 console.error(e)
-                return m.reply(`❌ Gagal menyimpan library.\n${e.message}`)
+                return m.reply(
+                    card("ADD LIB", [`Gagal menyimpan library.`, e.message], { emoji: "📚" })
+                )
             }
         }
 

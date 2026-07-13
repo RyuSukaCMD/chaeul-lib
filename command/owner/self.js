@@ -1,3 +1,5 @@
+import { card } from "../../lib/ui.js"
+
 export default {
     name: "Self",
 
@@ -10,10 +12,14 @@ export default {
     owner: true,
 
     async run({ m }) {
-        if (!global.settings.public) return m.reply("Already in self mode.")
+        if (!global.settings.public) {
+            return m.reply(card("SELF MODE", "Bot sudah dalam mode self.", { emoji: "🔒" }))
+        }
 
         global.settings.public = false
 
-        m.reply("✅ Self mode enabled.")
+        await m.react("🔒")
+
+        return m.reply(card("SELF MODE", "✅ Mode self diaktifkan.", { emoji: "🔒" }))
     }
 }

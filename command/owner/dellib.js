@@ -1,4 +1,5 @@
 import fs from "fs"
+import { card } from "../../lib/ui.js"
 
 function wib() {
     const d = new Date()
@@ -46,9 +47,7 @@ export default {
     }) {
         if (!args[0])
             return m.reply(
-                `Contoh:
-
-${global.prefix}dellib button.js`
+                card("DEL LIB", ["Contoh:", `${global.prefix}dellib button.js`], { emoji: "📚" })
             )
 
         const file = args[0].endsWith(".js") ? args[0] : `${args[0]}.js`
@@ -57,24 +56,25 @@ ${global.prefix}dellib button.js`
 
         const backupDir = "./libbackup"
 
-        if (!fs.existsSync(target)) return m.reply("❌ Library tidak ditemukan.")
+        if (!fs.existsSync(target))
+            return m.reply(card("DEL LIB", "Library tidak ditemukan.", { emoji: "📚" }))
 
         if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir)
 
-        fs.renameSync(
-            target,
+        const backupName = `${wib()}_${file}`
+        fs.renameSync(target, `${backupDir}/${backupName}`)
 
-            `${backupDir}/${wib()}_${file}`
-        )
+        await m.react("✅")
 
         return m.reply(
-            `✅ Library berhasil dihapus.
-
-📁 ${file}
-
-Backup:
-
-libbackup/${wib()}_${file}`
+            card(
+                "DEL LIB",
+                [`✅ Library dihapus.`, `📁 ${file}`, `💾 Backup: libbackup/${backupName}`],
+                {
+                    emoji: "📚",
+                    footer: "⚠️ lib/ di-sync dari chaeul-lib; ubah permanen di sana."
+                }
+            )
         )
     }
 }

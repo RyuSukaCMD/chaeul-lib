@@ -1,4 +1,5 @@
 import { addBlacklist, isBlacklist } from "../../lib/blacklistgroup.js"
+import { card } from "../../lib/ui.js"
 
 export default {
     command: ["blacklistgroup", "blgroup"],
@@ -7,18 +8,27 @@ export default {
 
     category: "Owner",
 
-    async run({ m }) {
-        if (!m.isGroup) return m.reply("Command hanya bisa digunakan di grup.")
+    description: "Blacklist grup saat ini",
 
-        if (isBlacklist(m.chat)) return m.reply("Group ini sudah diblacklist.")
+    async run({ m }) {
+        if (!m.isGroup) {
+            return m.reply(
+                card("BLACKLIST GROUP", "Command hanya bisa dipakai di grup.", { emoji: "🚫" })
+            )
+        }
+
+        if (isBlacklist(m.chat)) {
+            return m.reply(card("BLACKLIST GROUP", "Grup ini sudah diblacklist.", { emoji: "🚫" }))
+        }
 
         addBlacklist(m.chat)
 
-        return m.reply(
-            `✅ Group berhasil ditambahkan ke blacklist.
+        await m.react("✅")
 
-ID:
-${m.chat}`
+        return m.reply(
+            card("BLACKLIST GROUP", ["✅ Grup ditambahkan ke blacklist.", "", `🆔 ${m.chat}`], {
+                emoji: "🚫"
+            })
         )
     }
 }

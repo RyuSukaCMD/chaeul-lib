@@ -1,4 +1,5 @@
 import { delBlacklist, isBlacklist } from "../../lib/blacklistgroup.js"
+import { card } from "../../lib/ui.js"
 
 export default {
     command: ["delblacklistgroup", "delbl"],
@@ -7,13 +8,25 @@ export default {
 
     category: "Owner",
 
-    async run({ m }) {
-        if (!m.isGroup) return m.reply("Command hanya bisa digunakan di grup.")
+    description: "Hapus grup dari blacklist",
 
-        if (!isBlacklist(m.chat)) return m.reply("Group ini tidak ada di blacklist.")
+    async run({ m }) {
+        if (!m.isGroup) {
+            return m.reply(
+                card("DEL BLACKLIST", "Command hanya bisa dipakai di grup.", { emoji: "🚫" })
+            )
+        }
+
+        if (!isBlacklist(m.chat)) {
+            return m.reply(
+                card("DEL BLACKLIST", "Grup ini tidak ada di blacklist.", { emoji: "🚫" })
+            )
+        }
 
         delBlacklist(m.chat)
 
-        return m.reply("✅ Group berhasil dihapus dari blacklist.")
+        await m.react("✅")
+
+        return m.reply(card("DEL BLACKLIST", "✅ Grup dihapus dari blacklist.", { emoji: "🚫" }))
     }
 }

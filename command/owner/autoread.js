@@ -1,3 +1,5 @@
+import { card, status } from "../../lib/ui.js"
+
 export default {
     command: ["autoread"],
 
@@ -8,8 +10,10 @@ export default {
     owner: true,
 
     async run({ m }) {
-        const status = (global.settings.autoread = !global.settings.autoread)
+        const on = (global.settings.autoread = !global.settings.autoread)
 
-        return m.reply(`*Auto Read* ${status ? "Enabled ✅" : "Disabled ❌"}`)
+        await m.react(on ? "✅" : "❌")
+
+        return m.reply(card("AUTO READ", status("Auto Read", on), { emoji: "📖" }))
     }
 }
