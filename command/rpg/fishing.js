@@ -28,6 +28,13 @@ import {
 //                         phaseIdx, next, done }
 const sessions = new Map()
 
+// Kunci per-grup: hanya 1 user boleh mancing dalam satu grup pada satu waktu.
+const groupLock = new Map() // chat -> sid
+
+function releaseLock(chat, sid) {
+    if (groupLock.get(chat) === sid) groupLock.delete(chat)
+}
+
 const DIRS = ["⬆️", "⬇️", "⬅️", "➡️", "↗️", "↘️", "↕️", "↔️", "🔄", "🎯"]
 
 const newId = () => `${Date.now()}${Math.floor(Math.random() * 1000)}`
@@ -117,6 +124,7 @@ export default {
             if (slot !== expected) {
                 sess.done = true
                 sessions.delete(sid)
+                releaseLock(sess.chat, sid)
                 return m.reply(
                     card("MANCING", "😩 Yah, ikannya lepas!\nSemoga beruntung lain kali!", {
                         emoji: "🎣"
@@ -140,6 +148,7 @@ export default {
             // ── Semua phase selesai → dapat ikan ──
             sess.done = true
             sessions.delete(sid)
+            releaseLock(sess.chat, sid)
 
             addItem(me, sess.fish.id + (sess.mutation ? `#${sess.mutation.id}` : ""), 1)
             recordCatch(me, sess.fish.id)
@@ -173,6 +182,19 @@ export default {
         }
 
         // ═══════════ Command utama: mulai memancing ═══════════
+        // Kunci per-grup: hanya 1 orang boleh mancing di grup pada satu waktu.
+        if (m.isGroup && groupLock.has(m.chat)) {
+            return m.reply(
+                card(
+                    "MANCING",
+                    "🎣 Ada yang sedang memancing di grup ini.\nTunggu sampai selesai ya!",
+                    {
+                        emoji: "⏳"
+                    }
+                )
+            )
+        }
+
         const activeEv = getActiveEvent()
         const noCd = activeEv?.effect?.noFishCd
         const left = noCd ? 0 : cdLeft(me, "fish", CONFIG.fishCooldown)
@@ -238,10 +260,12 @@ export default {
             done: false
         }
         sessions.set(sid, sess)
+        if (m.isGroup) groupLock.set(m.chat, sid) // kunci grup
 
         // Auto-expire 45 detik (lebih lama utk multi-phase)
         const t = setTimeout(() => {
             const s = sessions.get(sid)
+            releaseLock(m.chat, sid)
             if (s && !s.done) {
                 sessions.delete(sid)
                 sock.sendMessage(m.chat, {
