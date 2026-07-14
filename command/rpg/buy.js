@@ -78,35 +78,56 @@ export default {
             )
         }
 
-        // ── Tampilkan toko ──
+        // ── Tampilkan toko (dikelompokkan per tipe) ──
         const p = getPlayer(me)
-        const rows = Object.entries(ITEMS)
-            .filter(([, it]) => it.price > 0)
-            .map(([id, it]) => {
-                let desc = TYPE_LABEL[it.type]
-                if (it.atk) desc += ` · ATK ${it.atk}`
-                if (it.def) desc += ` · DEF ${it.def}`
-                if (it.heal) desc += ` · Heal ${it.heal}`
-                if (it.luck) desc += ` · Luck ×${it.luck}`
-                if (it.energy) desc += ` · +${it.energy} Energy`
-                return {
-                    title: `${it.emoji} ${it.name} — $${it.price}`,
-                    description: desc,
-                    id: `buy_item:${id}`
-                }
-            })
+        const SECTION_ORDER = [
+            ["weapon", "⚔️ Senjata"],
+            ["armor", "🛡️ Armor"],
+            ["potion", "🧪 Healing"],
+            ["rod", "🎣 Pancing"],
+            ["misc", "📦 Item Lain"]
+        ]
+
+        const rowFor = (id, it) => {
+            let desc = TYPE_LABEL[it.type] || ""
+            if (it.atk) desc += ` · ATK ${it.atk}`
+            if (it.def) desc += ` · DEF ${it.def}`
+            if (it.heal) desc += it.heal >= 99999 ? ` · Full Heal` : ` · Heal ${it.heal}`
+            if (it.luck) desc += ` · Luck ×${it.luck}`
+            if (it.reel) desc += ` · Reel ${it.reel}`
+            if (it.energy) desc += ` · +${it.energy} Energy`
+            return {
+                title: `${it.emoji} ${it.name} — $${it.price.toLocaleString("id-ID")}`,
+                description: desc,
+                id: `buy_item:${id}`
+            }
+        }
+
+        const sections = []
+        for (const [type, title] of SECTION_ORDER) {
+            const rows = Object.entries(ITEMS)
+                .filter(([, it]) => it.type === type && it.price > 0)
+                .map(([id, it]) => rowFor(id, it))
+            if (rows.length) sections.push({ title, rows })
+        }
 
         return Button.menu({
             sock,
             m,
             body: card(
                 "TOKO RPG",
-                [`💵 Saldo kamu: $${p.money}`, ``, `Pilih item yang ingin dibeli 👇`],
+                [
+                    `💵 Saldo kamu: $${p.money.toLocaleString("id-ID")}`,
+                    ``,
+                    `Pilih item yang ingin dibeli 👇`,
+                    `Gunakan potion: ${global.prefix}heal`
+                ],
                 { emoji: "🛒" }
             ),
             footer: "© Chaeul RPG",
             lock: me,
-            sections: [{ title: "🛒 Daftar Item", rows }]
+            listTitle: "🛒 Toko RPG",
+            sections
         })
     }
 }

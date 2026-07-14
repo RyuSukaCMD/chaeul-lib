@@ -11,6 +11,7 @@ import {
     rodLuck,
     rodReel,
     recordCatch,
+    recordCatchStat,
     getIsland,
     getEnchantId,
     getPity,
@@ -158,6 +159,13 @@ export default {
                 addItem(me, fish.id + (mutation ? `#${mutation.id}` : ""), 1)
                 const { isNew } = recordCatch(me, fish.id)
                 if (isNew) anyNew = true
+                // Statistik untuk quest (rarity, island, mutation, fish id)
+                recordCatchStat(me, {
+                    fishId: fish.id,
+                    island: fish.island,
+                    rarity: fish.rarity,
+                    mutationId: mutation?.id || null
+                })
 
                 const xpGain = RARITY[fish.rarity].weight > 1000 ? 15 : 40
                 const { leveled } = addXp(me, xpGain)
@@ -183,6 +191,13 @@ export default {
                 addItem(me, STONE_ITEM, 1)
                 lines.push(`🎁 BONUS: ${STONE_INFO.emoji} ${STONE_INFO.name}!`)
                 lines.push(`   Pakai untuk ${global.prefix}enchant`)
+                lines.push(``)
+            }
+            // Holy String drop (quest Rock'in Guitar)
+            if (sess.holyDrop) {
+                addItem(me, "holystring", 1)
+                lines.push(`🎁 LANGKA: 🎼 Holy String!`)
+                lines.push(`   Bahan quest — cek ${global.prefix}quest`)
                 lines.push(``)
             }
 
@@ -283,35 +298,54 @@ export default {
             if (missing.length) fish = missing[Math.floor(Math.random() * missing.length)]
         }
 
-        // Mutation (event × enchant Mutator/Poseidon × Gold Hand)
+        // Mutation (event × enchant Mutator/Poseidon × Gold Hand).
+        // Haunted Sea: chance mutasi GHOST jauh lebih besar (ghostBoost).
         const mutBonus = (ev.mutation || 1) * (ench.mutationBoost || 1)
-        let mutation = rollMutation(mutBonus)
-        if (!mutation && ench.goldMutBoost > 1) {
-            const golden = { id: "golden", name: "Golden", emoji: "🟡", mult: 3 }
-            if (Math.random() < 0.03 * ench.goldMutBoost) mutation = golden
+        const ghostBoost = ISLANDS[island].ghostBoost || 1
+        const rollMut = () => {
+            let mut = rollMutation(mutBonus)
+            // Boost ghost khusus Haunted Sea
+            if (ghostBoost > 1 && (!mut || mut.id !== "ghost")) {
+                const ghost = { id: "ghost", name: "Ghost", emoji: "👻", mult: 3.5 }
+                if (Math.random() < 0.02 * ghostBoost * mutBonus) mut = ghost
+            }
+            if (!mut && ench.goldMutBoost > 1) {
+                const golden = { id: "golden", name: "Golden", emoji: "🟡", mult: 3 }
+                if (Math.random() < 0.03 * ench.goldMutBoost) mut = golden
+            }
+            return mut
         }
+        let mutation = rollMut()
 
         const fishes = [{ fish, mutation }]
 
         // Enchant Double/Triple Reel: ikan tambahan
         if (ench.doubleCatch > 0 && Math.random() < ench.doubleCatch) {
             const { rarity: r2 } = rollIslandRarity(island, luck, 0)
-            fishes.push({ fish: randomIslandFish(island, r2), mutation: rollMutation(mutBonus) })
+            fishes.push({ fish: randomIslandFish(island, r2), mutation: rollMut() })
         }
         if (ench.tripleChance > 0 && Math.random() < ench.tripleChance) {
             const { rarity: r3 } = rollIslandRarity(island, luck, 0)
-            fishes.push({ fish: randomIslandFish(island, r3), mutation: rollMutation(mutBonus) })
+            fishes.push({ fish: randomIslandFish(island, r3), mutation: rollMut() })
         }
 
         // Enchant Stone drop — hanya di island "stone" (Sacred Jungle), 6% chance
         let stoneDrop = false
         if (ISLANDS[island].stone && Math.random() < 0.06) stoneDrop = true
 
-        // Phase: legendary+ punya phase TERSEMBUNYI (2-8 sesuai rarity)
-        const cfg = RARITY[rarity]
+        // Holy String drop — quest item, chance kecil (3%) di Rock Island
+        let holyDrop = false
+        if (island === "rock" && Math.random() < 0.03) holyDrop = true
+
+        // Phase: legendary+ punya phase TERSEMBUNYI (2-8 sesuai rarity).
+        // PENTING: pakai rarity IKAN YANG BENAR-BENAR DIDAPAT (fish.rarity),
+        // bukan rarity hasil roll — karena Hopeful/fallback bisa mengganti ikan
+        // ke rarity berbeda. Ini memperbaiki bug "ikan Secret tanpa phase".
+        const effRarity = fishes[0].fish.rarity
+        const cfg = RARITY[effRarity]
         const btnCount = () => Math.max(1, randInt(cfg.buttons[0], cfg.buttons[1]) - reel)
         let phaseCount = 1
-        if (PHASE_RARITIES.includes(rarity) && Array.isArray(cfg.phases)) {
+        if (PHASE_RARITIES.includes(effRarity) && Array.isArray(cfg.phases)) {
             phaseCount = randInt(cfg.phases[0], cfg.phases[1])
         }
         const phases = Array.from({ length: phaseCount }, () => buildPhase(btnCount()))
@@ -324,6 +358,7 @@ export default {
             island,
             fishes,
             stoneDrop,
+            holyDrop,
             phases,
             phaseIdx: 0,
             done: false

@@ -1,22 +1,82 @@
 import Button from "../../lib/button.js"
 import { card } from "../../lib/ui.js"
 import { resolvePn, tag } from "../../lib/resolve.js"
-import { getPlayer, getMoney, transferMoney, addXp, getAtk } from "../../lib/rpg.js"
+import { getMoney, transferMoney, addXp } from "../../lib/rpg.js"
 
-const challenges = new Map()
+// Duel ADIL: mini-game reaksi. Level & equipment TIDAK berpengaruh.
+// Alur: challenger tantang → target Accept → keduanya lihat tombol acak,
+// yang klik tombol BENAR paling cepat menang.
+const challenges = new Map() // id -> { challenger, target, bet, chat }
+const games = new Map() // id -> { players:Set, bet, answer, clicked, done }
+
 const newId = () => `${Date.now()}${Math.floor(Math.random() * 1000)}`
+const EMOJIS = ["🍎", "🍌", "🍇", "🍊", "🍓", "🥝", "🍑", "🍍"]
 
 export default {
-    command: ["duel", /^duel_accept:.*/, /^duel_decline:.*/],
+    command: ["duel", /^duel_accept:.*/, /^duel_decline:.*/, /^duel_hit:.*/],
 
     category: "RPG",
 
-    description: "Tantang pemain duel taruhan money (butuh Accept)",
+    description: "Duel taruhan money — mini-game reaksi (adil, tanpa pengaruh level/equipment)",
 
     async run({ sock, m, command, args }) {
         const me = await resolvePn(sock, m, m.sender)
 
-        // ── Handler tombol ──
+        // ── Klik jawaban duel (reaksi tercepat) ──
+        if (command.startsWith("duel_hit:")) {
+            const [, id, choice] = command.split(":")
+            const g = games.get(id)
+            if (!g || g.done) return
+            const clicker = await resolvePn(sock, m, m.sender)
+            if (!g.players.has(clicker) && !g.players.has(m.sender)) return
+
+            const who = g.players.has(clicker) ? clicker : m.sender
+
+            // Klik tombol SALAH → langsung kalah
+            if (Number(choice) !== g.answer) {
+                g.done = true
+                games.delete(id)
+                const winner = [...g.players].find((p) => p !== who)
+                transferMoney(who, winner, g.bet)
+                addXp(winner, 25)
+                return m.reply(
+                    card(
+                        "HASIL DUEL",
+                        [
+                            `${tag(who)} salah tombol! ❌`,
+                            ``,
+                            `🏆 Pemenang: ${tag(winner)}`,
+                            `💰 +$${g.bet} • ✨ +25 XP`
+                        ],
+                        { emoji: "⚔️" }
+                    ),
+                    { mentions: [who, winner] }
+                )
+            }
+
+            // Klik BENAR pertama → menang
+            g.done = true
+            games.delete(id)
+            const loser = [...g.players].find((p) => p !== who)
+            transferMoney(loser, who, g.bet)
+            addXp(who, 25)
+            return m.reply(
+                card(
+                    "HASIL DUEL",
+                    [
+                        `⚡ ${tag(who)} paling cepat & tepat!`,
+                        ``,
+                        `🏆 Pemenang: ${tag(who)}`,
+                        `💸 ${tag(loser)} kehilangan $${g.bet}`,
+                        `✨ +25 XP`
+                    ],
+                    { emoji: "⚔️" }
+                ),
+                { mentions: [who, loser] }
+            )
+        }
+
+        // ── Accept / Decline ──
         if (command.startsWith("duel_accept:") || command.startsWith("duel_decline:")) {
             const isAccept = command.startsWith("duel_accept:")
             const id = command.split(":")[1]
@@ -41,32 +101,45 @@ export default {
                 )
             }
 
-            // Pemenang: bobot dari ATK + level + acak
-            const cp = getPlayer(ch.challenger)
-            const tp = getPlayer(ch.target)
-            const cw = getAtk(cp) + cp.level * 3 + Math.random() * 20
-            const tw = getAtk(tp) + tp.level * 3 + Math.random() * 20
-            const winner = cw >= tw ? ch.challenger : ch.target
-            const loser = winner === ch.challenger ? ch.target : ch.challenger
+            // Mulai mini-game: pilih emoji target + tombol acak
+            const pool = [...EMOJIS].sort(() => Math.random() - 0.5).slice(0, 4)
+            const answer = Math.floor(Math.random() * pool.length)
+            const targetEmoji = pool[answer]
 
-            transferMoney(loser, winner, ch.bet)
-            addXp(winner, 30)
+            games.set(id, {
+                players: new Set([ch.challenger, ch.target]),
+                bet: ch.bet,
+                answer,
+                done: false
+            })
 
-            return m.reply(
-                card(
-                    "HASIL DUEL",
+            const t = setTimeout(() => {
+                if (games.has(id)) games.delete(id)
+            }, 30000)
+            if (t.unref) t.unref()
+
+            return Button.menu({
+                sock,
+                m,
+                body: card(
+                    "DUEL DIMULAI!",
                     [
                         `⚔️ ${tag(ch.challenger)} 🆚 ${tag(ch.target)}`,
                         `💰 Taruhan: $${ch.bet}`,
                         ``,
-                        `🏆 Pemenang: ${tag(winner)}`,
-                        `💸 ${tag(loser)} kehilangan $${ch.bet}`,
-                        `✨ ${tag(winner)} +30 XP`
+                        `🎯 Klik tombol *${targetEmoji}* PALING CEPAT!`,
+                        `Salah tombol = kalah. Siapa cepat dia menang!`
                     ],
-                    { emoji: "⚔️" }
+                    { emoji: "⚡" }
                 ),
-                { mentions: [ch.challenger, ch.target, winner, loser] }
-            )
+                footer: "© Chaeul RPG",
+                mentions: [ch.challenger, ch.target],
+                buttons: pool.map((e, i) => ({
+                    type: "quick",
+                    text: e,
+                    id: `duel_hit:${id}:${i}`
+                }))
+            })
         }
 
         // ── Command utama ──
@@ -79,11 +152,9 @@ export default {
 
         if (!target || isNaN(bet) || bet <= 0) {
             return m.reply(
-                card(
-                    "DUEL",
-                    [`Tag pemain & taruhan.`, ``, `Contoh: ${global.prefix}duel @user 100`],
-                    { emoji: "⚔️" }
-                )
+                card("DUEL", [`Tag pemain & taruhan.`, `Contoh: ${global.prefix}duel @user 100`], {
+                    emoji: "⚔️"
+                })
             )
         }
         if (target === me)
@@ -93,27 +164,14 @@ export default {
         if (getMoney(target) < bet)
             return m.reply(
                 card("DUEL", `${tag(target)} tidak punya cukup money.`, { emoji: "⚔️" }),
-                { mentions: [target] }
+                {
+                    mentions: [target]
+                }
             )
 
         const id = newId()
         challenges.set(id, { challenger: me, target, bet, chat: m.chat })
-
-        const t = setTimeout(async () => {
-            if (challenges.has(id)) {
-                challenges.delete(id)
-                try {
-                    await sock.sendMessage(m.chat, {
-                        text: card(
-                            "⌛ DUEL EXPIRED",
-                            `${tag(me)}, tantangan duel ke ${tag(target)} kedaluwarsa.`,
-                            { emoji: "⚔️" }
-                        ),
-                        mentions: [me, target]
-                    })
-                } catch {}
-            }
-        }, 60 * 1000)
+        const t = setTimeout(() => challenges.delete(id), 60000)
         if (t.unref) t.unref()
 
         return Button.menu({
@@ -125,9 +183,9 @@ export default {
                     `${tag(me)} menantang ${tag(target)} duel!`,
                     ``,
                     `💰 Taruhan: $${bet}`,
+                    `🎮 Mini-game reaksi — ADIL, murni skill!`,
                     ``,
-                    `${tag(target)}, terima?`,
-                    `⏳ Berlaku 1 menit.`
+                    `${tag(target)}, terima? ⏳ 1 menit.`
                 ],
                 { emoji: "⚔️" }
             ),
