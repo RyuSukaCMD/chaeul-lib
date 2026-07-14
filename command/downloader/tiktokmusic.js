@@ -1,5 +1,5 @@
 import { card } from "../../lib/ui.js"
-import { tiktokMusic } from "../../lib/downloader.js"
+import { tiktokMusic, fetchBuffer } from "../../lib/downloader.js"
 
 const TT_REGEX = /tiktok\.com|vt\.tiktok|vm\.tiktok/i
 
@@ -17,9 +17,7 @@ export default {
                 card(
                     "TIKTOK MUSIC",
                     [`Kirim link TikTok.`, `Contoh: ${global.prefix}ttmusic <link>`],
-                    {
-                        emoji: "🎶"
-                    }
+                    { emoji: "🎶" }
                 )
             )
         }
@@ -31,7 +29,8 @@ export default {
             await m.reply(
                 card("TIKTOK MUSIC", [`🎶 ${d.title}`, `👤 ${d.author}`], { emoji: "🎶" })
             )
-            await m.sendAudio(d.audio, false)
+            const buf = await fetchBuffer(d.audio)
+            await m.sendAudio(buf, false)
             await m.react("✅")
         } catch (e) {
             await m.react("❌")

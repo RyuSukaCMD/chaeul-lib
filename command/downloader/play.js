@@ -1,5 +1,5 @@
 import { card } from "../../lib/ui.js"
-import { ytSearch, ytmp3, lyrics } from "../../lib/downloader.js"
+import { ytSearch, ytmp3, lyrics, fetchBuffer } from "../../lib/downloader.js"
 
 export default {
     command: ["play", "music", "lagu"],
@@ -48,7 +48,10 @@ export default {
             // 3) MP3 (best-effort; API bisa lambat/gagal)
             try {
                 const audio = await ytmp3(top.url)
-                if (audio.audio) await m.sendAudio(audio.audio, false)
+                if (audio.audio) {
+                    const buf = await fetchBuffer(audio.audio)
+                    await m.sendAudio(buf, false)
+                }
                 await m.react("✅")
             } catch {
                 await m.react("⚠️")

@@ -1,5 +1,5 @@
 import { card } from "../../lib/ui.js"
-import { tiktok } from "../../lib/downloader.js"
+import { tiktok, fetchBuffer } from "../../lib/downloader.js"
 import { formatCount, formatDuration } from "../../lib/dlformat.js"
 
 const TT_REGEX = /tiktok\.com|vt\.tiktok|vm\.tiktok/i
@@ -25,10 +25,13 @@ export default {
         try {
             const d = await tiktok(url)
 
-            // Slideshow (foto) → kirim gambar
+            // Slideshow (foto)
             if (d.images?.length) {
                 for (const img of d.images.slice(0, 10)) {
-                    await m.sendImage(img, "").catch(() => {})
+                    try {
+                        const buf = await fetchBuffer(img)
+                        await m.sendImage(buf, "")
+                    } catch {}
                 }
                 await m.react("✅")
                 return
@@ -42,7 +45,8 @@ export default {
                 `🎶 ${d.music_info.title}\n\n` +
                 `${(d.title || "").slice(0, 200)}`
 
-            await m.sendVideo(d.video, caption)
+            const buf = await fetchBuffer(d.video)
+            await m.sendVideo(buf, caption)
             await m.react("✅")
         } catch (e) {
             await m.react("❌")

@@ -2,97 +2,112 @@ import Button from "../../lib/button.js"
 import { card } from "../../lib/ui.js"
 import { resolvePn, tag } from "../../lib/resolve.js"
 import { getPlayer, getMoney, addMoney, removeItem, addItem, isFav } from "../../lib/rpg.js"
-import { MUTATIONS, fishDisplay } from "../../lib/fish.js"
-import { getFishById } from "../../lib/island.js"
+import { listOwnedFish, pageRows } from "../../lib/fishpicker.js"
 
-const MUT_MAP = Object.fromEntries(MUTATIONS.map((mt) => [mt.id, mt]))
-
-// Sesi trade: id -> { a, b, chat, offer:{a:{money,fish:{key:qty}}, b:{...}},
-//                     ready:{a,b}, started, done }
+// Sesi: id -> { a,b,chat, offer:{a:{money,fish:{}},b:{...}}, ready:{a,b},
+//              started, done, msgKey, page:{a,b} }
 const trades = new Map()
 const newId = () => `${Date.now()}${Math.floor(Math.random() * 1000)}`
+// Sesi input uang: jid -> tradeId (menunggu user ketik jumlah)
+const awaitingMoney = new Map()
 
 function findTradeOf(jid) {
-    for (const [id, t] of trades) {
-        if (!t.done && (t.a === jid || t.b === jid)) return [id, t]
-    }
+    for (const [id, t] of trades) if (!t.done && (t.a === jid || t.b === jid)) return [id, t]
     return [null, null]
 }
+const sideOf = (t, jid) => (t.a === jid ? "a" : "b")
 
-function side(t, jid) {
-    return t.a === jid ? "a" : "b"
-}
-
-function offerLines(t, jid, label) {
-    const o = t.offer[side(t, jid)]
-    const lines = [`${label}:`]
-    if (o.money) lines.push(`  💰 $${o.money.toLocaleString("id-ID")}`)
-    const fishKeys = Object.keys(o.fish)
-    if (fishKeys.length) {
-        for (const k of fishKeys) {
-            const f = getFishById(k.split("#")[0])
-            const mid = k.split("#")[1]
-            if (f) lines.push(`  ${fishDisplay(f, mid ? MUT_MAP[mid] : null)} ×${o.fish[k]}`)
-        }
+function offerText(t, jid, label) {
+    const o = t.offer[sideOf(t, jid)]
+    const lines = [`📦 ${label}:`]
+    if (o.money) lines.push(`   💰 $${o.money.toLocaleString("id-ID")}`)
+    for (const [k, q] of Object.entries(o.fish)) {
+        const it = listOwnedFish(jid).find((x) => x.key === k)
+        lines.push(`   ${it ? it.label : k} ×${q}`)
     }
-    if (!o.money && !fishKeys.length) lines.push(`  (kosong)`)
+    if (!o.money && !Object.keys(o.fish).length) lines.push(`   (kosong)`)
     return lines
 }
 
-async function renderTrade(sock, m, id) {
+async function renderTrade(sock, m, id, forJid = null, page = 0) {
     const t = trades.get(id)
     if (!t) return
+    if (t.msgKey) {
+        try {
+            await sock.sendMessage(t.chat, { delete: t.msgKey })
+        } catch {}
+    }
+
+    // Panel utama: ringkasan offer + tombol aksi.
+    // Bila forJid diberikan, tampilkan juga daftar ikan orang itu utk dipilih.
+    let sections
+    let navButtons = []
+    if (forJid) {
+        const items = listOwnedFish(forJid).filter((it) => !isFav(forJid, it.baseId))
+        const s = sideOf(t, forJid)
+        const {
+            rows,
+            page: p,
+            totalPages
+        } = pageRows(items, page, (it) => `trade_add:${id}:${it.key}`)
+        t.page[s] = p
+        if (rows.length)
+            sections = [{ title: `✦ Ikan ${tag(forJid)} (Hal ${p + 1}/${totalPages})`, rows }]
+        if (p > 0) navButtons.push({ type: "quick", text: "⬅️", id: `trade_list:${id}:${p - 1}` })
+        if (p < totalPages - 1)
+            navButtons.push({ type: "quick", text: "➡️", id: `trade_list:${id}:${p + 1}` })
+    }
+
+    const actionButtons = [
+        { type: "quick", text: "🐟 Pilih Ikanku", id: `trade_list:${id}:0` },
+        { type: "quick", text: "💰 Set Uang", id: `trade_money:${id}` },
+        { type: "quick", text: "✅ Done", id: `trade_done:${id}` },
+        { type: "quick", text: "❌ Cancel", id: `trade_cancel:${id}` }
+    ]
+
     const body = card(
         "TRADE",
         [
             `${tag(t.a)} 🔁 ${tag(t.b)}`,
             ``,
-            ...offerLines(t, t.a, `📦 ${tag(t.a)}`),
+            ...offerText(t, t.a, tag(t.a)),
             ``,
-            ...offerLines(t, t.b, `📦 ${tag(t.b)}`),
+            ...offerText(t, t.b, tag(t.b)),
             ``,
-            `Status: ${t.ready.a ? "✅" : "◻️"} ${tag(t.a)}  |  ${t.ready.b ? "✅" : "◻️"} ${tag(t.b)}`,
+            `Ready: ${t.ready.a ? "✅" : "◻️"} ${tag(t.a)} | ${t.ready.b ? "✅" : "◻️"} ${tag(t.b)}`,
             ``,
-            `Tambah: ${global.prefix}trade add <idIkan> [jml]`,
-            `Uang: ${global.prefix}trade money <jumlah>`,
-            `Kedua pihak tekan DONE untuk konfirmasi.`
+            `Gunakan tombol di bawah. Kedua pihak tekan DONE.`
         ],
         { emoji: "🔁" }
     )
-    return Button.menu({
+
+    const sent = await Button.menu({
         sock,
         m,
         body,
         footer: "© Chaeul RPG",
         mentions: [t.a, t.b],
-        buttons: [
-            { type: "quick", text: "✅ Done", id: `trade_done:${id}` },
-            { type: "quick", text: "❌ Cancel", id: `trade_cancel:${id}` }
-        ]
+        listTitle: forJid ? "🐟 Pilih Ikan" : undefined,
+        sections,
+        buttons: [...navButtons, ...actionButtons]
     })
+    if (sent?.key) t.msgKey = sent.key
+    return sent
 }
 
-function executeTrade(t) {
-    const oa = t.offer.a
-    const ob = t.offer.b
-    // Pindahkan uang
-    if (oa.money) {
-        addMoney(t.a, -oa.money)
-        addMoney(t.b, oa.money)
+function execute(t) {
+    const move = (from, to, o) => {
+        if (o.money) {
+            addMoney(from, -o.money)
+            addMoney(to, o.money)
+        }
+        for (const [k, q] of Object.entries(o.fish)) {
+            removeItem(from, k, q)
+            addItem(to, k, q)
+        }
     }
-    if (ob.money) {
-        addMoney(t.b, -ob.money)
-        addMoney(t.a, ob.money)
-    }
-    // Pindahkan ikan
-    for (const [k, q] of Object.entries(oa.fish)) {
-        removeItem(t.a, k, q)
-        addItem(t.b, k, q)
-    }
-    for (const [k, q] of Object.entries(ob.fish)) {
-        removeItem(t.b, k, q)
-        addItem(t.a, k, q)
-    }
+    move(t.a, t.b, t.offer.a)
+    move(t.b, t.a, t.offer.b)
 }
 
 export default {
@@ -100,25 +115,45 @@ export default {
         "trade",
         /^trade_accept:.+$/,
         /^trade_decline:.+$/,
+        /^trade_list:.+$/,
+        /^trade_add:.+$/,
+        /^trade_money:.+$/,
         /^trade_done:.+$/,
         /^trade_cancel:.+$/
     ],
 
     category: "RPG",
 
-    description: "Trading ikan + uang antar pemain (interaktif)",
+    description: "Trading ikan + uang antar pemain (pilih lewat tombol)",
 
-    async run({ sock, m, command, args }) {
+    async run({ sock, m, command, args, text }) {
         const me = await resolvePn(sock, m, m.sender)
 
-        // ── Accept/Decline undangan trade ──
+        // ── Input jumlah uang (ketik angka setelah tekan Set Uang) ──
+        if (awaitingMoney.has(me) && /^\d+$/.test((text || "").trim())) {
+            const id = awaitingMoney.get(me)
+            const t = trades.get(id)
+            awaitingMoney.delete(me)
+            if (t && t.started) {
+                const amt = parseInt(text.trim(), 10)
+                if (getMoney(me) >= amt) {
+                    t.offer[sideOf(t, me)].money = amt
+                    t.ready.a = false
+                    t.ready.b = false
+                } else {
+                    await m.reply(card("TRADE", "Uang tidak cukup.", { emoji: "🔁" }))
+                }
+                return renderTrade(sock, m, id)
+            }
+        }
+
+        // ── Accept / Decline ──
         if (command.startsWith("trade_accept:") || command.startsWith("trade_decline:")) {
             const id = command.split(":")[1]
             const t = trades.get(id)
-            if (!t) return m.reply(card("TRADE", "Undangan sudah kedaluwarsa.", { emoji: "🔁" }))
+            if (!t) return m.reply(card("TRADE", "Undangan kedaluwarsa.", { emoji: "🔁" }))
             const clicker = await resolvePn(sock, m, m.sender)
             if (clicker !== t.b && m.sender !== t.b) return
-
             if (command.startsWith("trade_decline:")) {
                 trades.delete(id)
                 return m.reply(card("TRADE", `${tag(t.b)} menolak trade.`, { emoji: "🔁" }), {
@@ -129,34 +164,68 @@ export default {
             return renderTrade(sock, m, id)
         }
 
+        // ── Tampilkan daftar ikan milik penekan ──
+        if (command.startsWith("trade_list:")) {
+            const [, id, pg] = command.split(":")
+            const t = trades.get(id)
+            if (!t) return
+            const who = me === t.a || me === t.b ? me : null
+            if (!who) return
+            return renderTrade(sock, m, id, who, Number(pg) || 0)
+        }
+
+        // ── Tambah ikan ke offer ──
+        if (command.startsWith("trade_add:")) {
+            const [, id, key] = command.split(":")
+            const t = trades.get(id)
+            if (!t) return
+            const who = me === t.a || me === t.b ? me : null
+            if (!who) return
+            if (isFav(who, key.split("#")[0])) return
+            const s = sideOf(t, who)
+            const have = getPlayer(who).inventory[key] || 0
+            const cur = t.offer[s].fish[key] || 0
+            if (cur < have) t.offer[s].fish[key] = cur + 1
+            t.ready.a = false
+            t.ready.b = false
+            return renderTrade(sock, m, id, who, t.page[s] || 0)
+        }
+
+        // ── Set uang: minta ketik jumlah ──
+        if (command.startsWith("trade_money:")) {
+            const id = command.split(":")[1]
+            const t = trades.get(id)
+            if (!t) return
+            const who = me === t.a || me === t.b ? me : null
+            if (!who) return
+            awaitingMoney.set(who, id)
+            return m.reply(
+                card("TRADE", [`💰 Ketik jumlah uang yang mau kamu tawarkan:`, `(angka saja)`], {
+                    emoji: "🔁"
+                })
+            )
+        }
+
         // ── Cancel ──
         if (command.startsWith("trade_cancel:")) {
             const id = command.split(":")[1]
             const t = trades.get(id)
             if (!t) return
-            const clicker = await resolvePn(sock, m, m.sender)
-            if (clicker !== t.a && clicker !== t.b && m.sender !== t.a && m.sender !== t.b) return
             trades.delete(id)
             return m.reply(card("TRADE", "Trade dibatalkan. ❌", { emoji: "🔁" }))
         }
 
-        // ── Done (konfirmasi) ──
+        // ── Done ──
         if (command.startsWith("trade_done:")) {
             const id = command.split(":")[1]
             const t = trades.get(id)
             if (!t || t.done) return
-            const clicker = await resolvePn(sock, m, m.sender)
-            const who =
-                clicker === t.a || m.sender === t.a
-                    ? "a"
-                    : clicker === t.b || m.sender === t.b
-                      ? "b"
-                      : null
+            const who = me === t.a ? "a" : me === t.b ? "b" : null
             if (!who) return
             t.ready[who] = true
 
             if (t.ready.a && t.ready.b) {
-                // Validasi kepemilikan sebelum eksekusi
+                // Validasi kepemilikan
                 for (const p of ["a", "b"]) {
                     const jid = t[p]
                     const o = t.offer[p]
@@ -180,7 +249,7 @@ export default {
                         }
                     }
                 }
-                executeTrade(t)
+                execute(t)
                 t.done = true
                 trades.delete(id)
                 return m.reply(
@@ -197,66 +266,14 @@ export default {
             return renderTrade(sock, m, id)
         }
 
-        // ── Subcommand: add / money (saat trade berlangsung) ──
-        const sub = args[0]?.toLowerCase()
-        if (sub === "add" || sub === "money") {
-            const [id, t] = findTradeOf(me)
-            if (!t || !t.started)
-                return m.reply(card("TRADE", "Kamu tidak sedang trading.", { emoji: "🔁" }))
-            const s = side(t, me)
-            // reset ready saat offer berubah
-            t.ready.a = false
-            t.ready.b = false
-
-            if (sub === "money") {
-                const amt = parseInt(args[1], 10)
-                if (isNaN(amt) || amt < 0)
-                    return m.reply(card("TRADE", "Jumlah uang tidak valid.", { emoji: "🔁" }))
-                if (getMoney(me) < amt)
-                    return m.reply(card("TRADE", "Uang kamu tidak cukup.", { emoji: "🔁" }))
-                t.offer[s].money = amt
-            } else {
-                const fishKey = args.find((a) => /^[a-z]+_\d+(#\w+)?$/i.test(a))
-                const q =
-                    parseInt(
-                        args.find((a, i) => i > 1 && /^\d+$/.test(a)),
-                        10
-                    ) || 1
-                if (!fishKey) return m.reply(card("TRADE", "Sebutkan id ikan.", { emoji: "🔁" }))
-                const base = fishKey.split("#")[0]
-                if (!getFishById(base))
-                    return m.reply(card("TRADE", `Ikan "${base}" tidak dikenal.`, { emoji: "🔁" }))
-                if (isFav(me, base))
-                    return m.reply(
-                        card("TRADE", "Ikan favorit ⭐ tidak bisa di-trade.", { emoji: "🔁" })
-                    )
-                const have = getPlayer(me).inventory[fishKey] || 0
-                if (have < q)
-                    return m.reply(
-                        card("TRADE", `Ikan tidak cukup (punya ${have}).`, { emoji: "🔁" })
-                    )
-                t.offer[s].fish[fishKey] = (t.offer[s].fish[fishKey] || 0) + q
-            }
-            return renderTrade(sock, m, id)
-        }
-
-        // ── Mulai trade: undang target ──
+        // ── Mulai trade ──
         const raw = m.mentionedJid?.[0] || m.quoted?.sender
         const target = await resolvePn(sock, m, raw)
         if (!target) {
             return m.reply(
-                card(
-                    "TRADE",
-                    [
-                        `Tag/reply user untuk trading.`,
-                        `${global.prefix}trade @user`,
-                        ``,
-                        `Setelah diterima:`,
-                        `${global.prefix}trade add <idIkan> [jml]`,
-                        `${global.prefix}trade money <jumlah>`
-                    ],
-                    { emoji: "🔁" }
-                )
+                card("TRADE", [`Tag/reply user.`, `Contoh: ${global.prefix}trade @user`], {
+                    emoji: "🔁"
+                })
             )
         }
         if (target === me)
@@ -273,10 +290,12 @@ export default {
             chat: m.chat,
             offer: { a: { money: 0, fish: {} }, b: { money: 0, fish: {} } },
             ready: { a: false, b: false },
+            page: { a: 0, b: 0 },
             started: false,
-            done: false
+            done: false,
+            msgKey: null
         })
-        const t = setTimeout(() => trades.delete(id), 5 * 60 * 1000)
+        const t = setTimeout(() => trades.delete(id), 10 * 60 * 1000)
         if (t.unref) t.unref()
 
         return Button.menu({

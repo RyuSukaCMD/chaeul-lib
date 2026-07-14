@@ -1,5 +1,5 @@
 import { card } from "../../lib/ui.js"
-import { facebook, instagram } from "../../lib/downloader.js"
+import { facebook, instagram, fetchBuffer } from "../../lib/downloader.js"
 
 const IG_REGEX = /instagram\.com/i
 const FB_REGEX = /(facebook\.com|fb\.watch|fb\.com)/i
@@ -29,7 +29,8 @@ export default {
         await m.react("⏳")
         try {
             const d = isIG ? await instagram(url) : await facebook(url)
-            await m.sendVideo(d.video, `${emoji} ${d.title || label}`)
+            const buf = await fetchBuffer(d.video)
+            await m.sendVideo(buf, `${emoji} ${d.title || label}`)
             await m.react("✅")
         } catch (e) {
             await m.react("❌")

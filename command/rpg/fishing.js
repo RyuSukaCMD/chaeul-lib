@@ -16,8 +16,10 @@ import {
     getEnchantId,
     getPity,
     bumpPity,
-    resetPity
+    resetPity,
+    getActiveQuest
 } from "../../lib/rpg.js"
+import { getQuest, questProgressLines, isQuestComplete } from "../../lib/quest.js"
 import { getStackedEffect } from "../../lib/events.js"
 import { RARITY, PHASE_RARITIES, rollMutation, fishValue, fishDisplay } from "../../lib/fish.js"
 import {
@@ -206,6 +208,21 @@ export default {
                     ? `🎉🎉 ${tag(sess.owner)} MULTI CATCH (×${sess.fishes.length})!`
                     : `🎉 ${tag(sess.owner)} menangkap:`
 
+            // Progress quest aktif (kalau ada)
+            const questLines = []
+            const activeQ = getActiveQuest(me)
+            if (activeQ) {
+                const q = getQuest(activeQ)
+                if (q) {
+                    questLines.push(``)
+                    questLines.push(`📜 Quest: ${q.emoji} ${q.name}`)
+                    questLines.push(...questProgressLines(me, activeQ))
+                    if (isQuestComplete(me, activeQ)) {
+                        questLines.push(`🎉 SIAP KLAIM! Ketik ${global.prefix}quest`)
+                    }
+                }
+            }
+
             return m.reply(
                 card(
                     "MANCING BERHASIL",
@@ -218,7 +235,8 @@ export default {
                         anyLevel ? `🎊 NAIK LEVEL!` : ``,
                         anyNew
                             ? `Cek koleksi: ${global.prefix}fishdex`
-                            : `Jual: ${global.prefix}sell`
+                            : `Jual: ${global.prefix}sell`,
+                        ...questLines
                     ].filter((x) => x !== ``),
                     { emoji: "🎣" }
                 ),
