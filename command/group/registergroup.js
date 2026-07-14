@@ -1,5 +1,6 @@
 import { card } from "../../lib/ui.js"
 import { registerGroupCmd, unregisterGroupCmd, isGroupRegistered } from "../../lib/groupmanage.js"
+import { pushGroup } from "../../lib/license.js"
 
 export default {
     command: ["registergroup", "reggroup", "unregistergroup", "unregroup"],
@@ -10,7 +11,7 @@ export default {
 
     description: "Aktif/nonaktifkan grup agar bisa memakai bot",
 
-    async run({ m, command }) {
+    async run({ sock, m, command }) {
         if (!m.isGroup) return m.reply("Command ini hanya untuk grup.")
 
         const isUnreg = command === "unregistergroup" || command === "unregroup"
@@ -45,6 +46,15 @@ export default {
         }
         registerGroupCmd(m.chat)
         await m.react("✅")
+
+        // Push ke website (nama grup saja) — real-time
+        try {
+            const meta = await sock.groupMetadata(m.chat)
+            pushGroup(m.chat, meta?.subject || "Grup", global.licenseInfo?.plan || "private")
+        } catch {
+            pushGroup(m.chat, "Grup", global.licenseInfo?.plan || "private")
+        }
+
         return m.reply(
             card(
                 "REGISTER GROUP",

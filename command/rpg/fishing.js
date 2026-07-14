@@ -32,6 +32,8 @@ import {
     fishIslandIndex
 } from "../../lib/island.js"
 import { enchantEffect, STONE_ITEM, STONE_INFO } from "../../lib/enchant.js"
+import { pushFishing } from "../../lib/license.js"
+import { getUser } from "../../lib/register.js"
 
 // Sesi minigame: sid -> { owner, chat, island, fishes:[{fish,mutation}], stoneDrop,
 //                         phases:[{order,dirs,next}], phaseIdx, done }
@@ -186,6 +188,20 @@ export default {
                 if (isNew) lines.push(`🆕 IKAN BARU! Index #${idx}/${total}`)
                 lines.push(`${rar.emoji} ${rar.label} • 💰 $${value.toLocaleString("id-ID")}`)
                 lines.push(``)
+
+                // Broadcast tangkapan ke website (feed live) — rarity langka saja
+                // agar feed tetap menarik (rare ke atas).
+                if (["rare", "epic", "legendary", "mythical", "secret", "ephemeral", "unreal"].includes(fish.rarity)) {
+                    const uname = getUser(me)?.name || "Seseorang"
+                    const fname = `${mutation ? mutation.name + " " : ""}${fish.name}`
+                    pushFishing({
+                        name: uname,
+                        fish: fname,
+                        rarity: fish.rarity,
+                        value,
+                        island: ISLANDS[sess.island]?.name || ""
+                    })
+                }
             }
 
             // Enchant stone drop (dari Sacred Jungle, dipancing seperti ikan)
