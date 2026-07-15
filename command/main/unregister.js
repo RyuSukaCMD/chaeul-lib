@@ -1,9 +1,6 @@
 import { smallcaps as sc } from "../../lib/font.js"
 import { resolvePn } from "../../lib/resolve.js"
-import { isRegistered, getUser, deleteUser, clearRegisterSession } from "../../lib/register.js"
-import { delToken } from "../../lib/token.js"
-import { getMarriage, removeMarriage } from "../../lib/marriage.js"
-import { getPartner, removePartner } from "../../lib/partner.js"
+import { isRegistered, getUser, unregisterUser, clearRegisterSession } from "../../lib/register.js"
 
 export default {
     command: ["unregister", "unreg"],
@@ -27,13 +24,9 @@ export default {
 
         const user = getUser(me)
 
-        // Bereskan relasi bila ada (agar pasangan tidak menggantung)
-        if (getMarriage(me)) removeMarriage(me)
-        if (getPartner(me)) removePartner(me)
-
-        // Hapus data user, akun token, dan sesi registrasi yang tersisa
-        deleteUser(me)
-        delToken(me)
+        // Unregister TANPA menghapus data: RPG (money/ikan/level), token, & relasi
+        // tetap utuh. Hanya ditandai belum-terdaftar agar bisa daftar ulang.
+        unregisterUser(me)
         clearRegisterSession(me)
 
         await m.react("✅")
@@ -41,11 +34,13 @@ export default {
         return m.reply(
             `╭─ ✦ ${sc("UNREGISTER BERHASIL")} ✦ ─⬣\n` +
                 `│\n` +
-                `│ ${sc("Data akun dihapus")}:\n` +
-                `│ ◦ ${sc("Nama")} : ${user.name || "-"}\n` +
-                `│ ◦ ${sc("Token & relasi direset")}\n` +
+                `│ ${sc("Kamu tidak lagi terdaftar")}.\n` +
+                `│ ◦ ${sc("Nama sebelumnya")} : ${user.name || "-"}\n` +
                 `│\n` +
-                `│ ${sc("Daftar ulang")}:\n` +
+                `│ ✅ ${sc("Progres RPG, saldo, ikan, & relasi")}\n` +
+                `│    ${sc("TETAP AMAN")} — tidak dihapus.\n` +
+                `│\n` +
+                `│ ${sc("Daftar ulang kapan saja")}:\n` +
                 `│ ${global.prefix}register\n` +
                 `│\n` +
                 `╰──────────────⬣`
