@@ -191,12 +191,23 @@ export default {
 
                 // Broadcast tangkapan ke website (feed live) — rarity langka saja
                 // agar feed tetap menarik (rare ke atas).
-                if (["rare", "epic", "legendary", "mythical", "secret", "ephemeral", "unreal"].includes(fish.rarity)) {
+                if (
+                    [
+                        "rare",
+                        "epic",
+                        "legendary",
+                        "mythical",
+                        "secret",
+                        "ephemeral",
+                        "unreal"
+                    ].includes(fish.rarity)
+                ) {
                     const _u = getUser(me)
                     const uname = _u?.name || _u?.username || "Seseorang"
                     const fname = `${mutation ? mutation.name + " " : ""}${fish.name}`
                     pushFishing({
                         name: uname,
+                        number: String(me).replace(/[^0-9]/g, ""),
                         fish: fname,
                         rarity: fish.rarity,
                         value,
