@@ -1,5 +1,5 @@
 import { card } from "../../lib/ui.js"
-import { imageURL } from "../../lib/ai.js"
+import { imageURLResolved } from "../../lib/ai.js"
 import { fetchBuffer } from "../../lib/downloader.js"
 
 export default {
@@ -28,7 +28,7 @@ export default {
 
         await m.react("🎨")
         try {
-            const url = imageURL(text, { width: 1024, height: 1024 })
+            const url = await imageURLResolved(text, { width: 1024, height: 1024 })
             // Unduh jadi buffer supaya pasti terkirim (URL di-generate on-the-fly)
             const buf = await fetchBuffer(url, { timeout: 90000 })
             await m.sendImage(buf, `🎨 *${text}*\n\n_Dibuat oleh Starnova AI_`)
