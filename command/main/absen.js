@@ -8,7 +8,7 @@ import { formatWIB, formatRemaining } from "../../lib/attendance.js"
 //  .absen — Absen harian NexHost via WEB (port 100% dari nopal)
 //
 //  Alur dibuat sama seperti PHP nopal/absen.php:
-//   1. Bot kirim nomor WA user ke PHP library web (/includes/wa_absen.php).
+//   1. Bot kirim nomor WA user ke website (/wa_absen.php).
 //   2. Website cari user berdasarkan users.json -> wa_number.
 //   3. Website cek server confirmed dari server_requests.json.
 //   4. Website cek already absen hari ini (WIB).
@@ -55,12 +55,6 @@ function webConfig() {
     // bot tetap support format env lama: PORTAL_URL=http://127.0.0.1 + API_PORT=xxxx.
     if (base && apiPort && /^https?:\/\/[^/:]+$/i.test(base)) base = `${base}:${apiPort}`
 
-    const endpoint =
-        global.absenWeb?.endpoint ||
-        process.env.API_PATH ||
-        process.env.ABSEN_API_PATH ||
-        "/includes/wa_absen.php"
-
     const secret =
         global.absenWeb?.secret ||
         process.env.API_SECRET ||
@@ -68,11 +62,11 @@ function webConfig() {
         process.env.NEXHOST_WA_BOT_SECRET ||
         ""
 
-    return { base, endpoint: endpoint.startsWith("/") ? endpoint : `/${endpoint}`, secret }
+    return { base, secret }
 }
 
 async function callWebAbsen(action, phone) {
-    const { base, endpoint, secret } = webConfig()
+    const { base, secret } = webConfig()
     if (!base || !secret) {
         return {
             success: false,
@@ -84,7 +78,7 @@ async function callWebAbsen(action, phone) {
 
     try {
         const { data } = await axios.post(
-            `${base}${endpoint}`,
+            `${base}/wa_absen.php`,
             { secret, action, phone },
             { timeout: 20000, headers: { "Content-Type": "application/json" } }
         )
