@@ -1,20 +1,20 @@
+import axios from "axios"
 import Button from "../../lib/button.js"
 import { card } from "../../lib/ui.js"
 import { resolvePn } from "../../lib/resolve.js"
-import {
-    doAbsen,
-    alreadyAbsenToday,
-    getStatus,
-    getAttendanceRecord,
-    formatWIB,
-    formatRemaining
-} from "../../lib/attendance.js"
+import { formatWIB, formatRemaining } from "../../lib/attendance.js"
 
 // ═══════════════════════════════════════════════════════════
-//  .absen — Absen harian (konsep 100% sama dgn nopal/NexHost)
-//   • Berlaku 24 jam sejak absen.
-//   • Cuma boleh 1x per hari (WIB).
-//   • Pakai TOMBOL: "Absen Sekarang" & "Cek Status".
+//  .absen — Absen harian NexHost via WEB (port 100% dari nopal)
+//
+//  Alur dibuat sama seperti PHP nopal/absen.php:
+//   1. Bot kirim nomor WA user ke website (/wa_absen.php).
+//   2. Website cari user berdasarkan users.json -> wa_number.
+//   3. Website cek server confirmed dari server_requests.json.
+//   4. Website cek already absen hari ini (WIB).
+//   5. Website menjalankan do_absen_web() dan menulis data/attendance.json.
+//
+//  Jadi sumber data absensi TETAP website, bukan database lokal bot.
 // ═══════════════════════════════════════════════════════════
 
 export default {
@@ -22,46 +22,120 @@ export default {
 
     category: "Main",
 
-    description: "Absen harian — server aman 24 jam (pakai tombol)",
+    description: "Absen harian hosting — request langsung ke web NexHost",
 
     // Absensi wajib gratis: jangan potong token user.
     free: true,
 
     async run({ sock, m, command }) {
-        // Identitas user = nomor WA (analog 'email' di web).
         const number = (await resolvePn(sock, m, m.sender)).replace(/[^0-9]/g, "")
         const username = m.pushName || m.name || number
 
-        // ── Tombol: LAKUKAN ABSEN ──
-        if (command === "absen_do") {
-            return doAbsenFlow(m, number, username)
-        }
+        if (command === "absen_do") return doAbsenFlow(m, number, username)
+        if (command === "absen_status") return showStatus(m, number)
 
-        // ── Tombol / command: CEK STATUS ──
-        if (command === "absen_status") {
-            return showStatus(sock, m, number)
-        }
-
-        // ── Command utama ".absen" → tampilkan panel + tombol ──
         return showPanel(sock, m, number, username)
     }
 }
 
-// ─── Panel utama dengan tombol ───
-async function showPanel(sock, m, number, username) {
-    const st = getStatus(number)
-    const lines = [`👤 ${username}`, ""]
+function webConfig() {
+    const base = (
+        global.absenWeb?.apiUrl ||
+        global.absenWeb?.baseUrl ||
+        global.license?.apiUrl ||
+        process.env.NEXHOST_WEB_URL ||
+        process.env.CHAEUL_WEB_URL ||
+        ""
+    ).replace(/\/+$/, "")
 
-    if (st.active) {
-        lines.push("✅ Kamu SUDAH absen & aman.")
-        lines.push(`⏳ Berlaku sampai: ${formatWIB(st.expiresAt)}`)
+    const secret =
+        global.absenWeb?.secret ||
+        process.env.WA_BOT_API_SECRET ||
+        process.env.NEXHOST_WA_BOT_SECRET ||
+        ""
+
+    return { base, secret }
+}
+
+async function callWebAbsen(action, phone) {
+    const { base, secret } = webConfig()
+    if (!base || !secret) {
+        return {
+            success: false,
+            code: "bot_config_missing",
+            error:
+                "Konfigurasi absen web belum lengkap. Set NEXHOST_WEB_URL/CHAEUL_WEB_URL dan WA_BOT_API_SECRET di .env bot."
+        }
+    }
+
+    try {
+        const { data } = await axios.post(
+            `${base}/wa_absen.php`,
+            { secret, action, phone },
+            { timeout: 20000, headers: { "Content-Type": "application/json" } }
+        )
+        return data || { success: false, error: "Response web kosong." }
+    } catch (e) {
+        const data = e?.response?.data
+        if (data && typeof data === "object") return data
+        return {
+            success: false,
+            code: "web_unreachable",
+            error: "Gagal menghubungi web absen: " + (e?.message || "unknown error")
+        }
+    }
+}
+
+function ms(sec) {
+    return Number(sec || 0) * 1000
+}
+
+function statusFromWeb(res) {
+    const record = res?.record || null
+    const nowSec = Number(res?.now || Math.floor(Date.now() / 1000))
+    const expSec = Number(record?.expires_at || res?.expires_at || 0)
+    const remainingMs = Math.max(0, (expSec - nowSec) * 1000)
+    return {
+        record,
+        active: !!record && remainingMs > 0,
+        expiresAtMs: ms(expSec),
+        lastAbsenMs: ms(record?.last_absen_ts),
+        remainingMs
+    }
+}
+
+function userLabel(res, fallback) {
+    const u = res?.user || {}
+    return u.username || fallback || u.wa_number || "User"
+}
+
+async function showPanel(sock, m, number, username) {
+    const res = await callWebAbsen("status", number)
+    const st = statusFromWeb(res)
+    const name = userLabel(res, username)
+
+    const lines = [`👤 ${name}`, ""]
+
+    if (!res.success) {
+        lines.push("❌ " + (res.error || "Gagal mengambil status absen."))
+        lines.push("")
+        if (res.code === "user_not_found") {
+            lines.push("Pastikan nomor WhatsApp kamu sama dengan yang terdaftar di portal.")
+        } else if (res.code === "no_active_server") {
+            lines.push("Kamu harus punya server confirmed/aktif dulu sebelum absen.")
+        } else {
+            lines.push("Coba lagi beberapa saat lagi.")
+        }
+    } else if (st.active) {
+        lines.push("✅ Kamu SUDAH absen & server aman.")
+        lines.push(`⏳ Berlaku sampai: ${formatWIB(st.expiresAtMs)}`)
         lines.push(`   Sisa waktu: ${formatRemaining(st.remainingMs)}`)
         lines.push("")
         lines.push("Kamu hanya bisa absen 1x per hari (WIB), sama seperti sistem web.")
     } else {
-        lines.push("❌ Kamu BELUM absen hari ini.")
+        lines.push("❌ Kamu BELUM absen / masa absen sudah habis.")
         lines.push("")
-        lines.push("Absen sekarang biar server/keanggotaan tetap aman 24 jam ke depan.")
+        lines.push("Absen sekarang biar server kamu tetap aman 24 jam ke depan.")
     }
 
     const buttons = [
@@ -73,57 +147,57 @@ async function showPanel(sock, m, number, username) {
         sock,
         m,
         body: card("ABSEN HARIAN", lines, { emoji: "📋" }),
-        footer: "© Chaeul • Absen berlaku 24 jam sejak absen",
+        footer: "© NexHost • Data absen tersimpan di website",
         lock: m.sender,
         buttons
     })
 }
 
-// ─── Proses absen (port dari absen.php) ───
 async function doAbsenFlow(m, number, username) {
-    // Tombol sudah dikunci dari Button.menu({ lock: m.sender }).
+    // Tombol dikunci via Button.menu({ lock: m.sender }).
     // Handler akan mengabaikan klik dari user lain sebelum sampai ke sini.
+    const res = await callWebAbsen("absen", number)
+    const st = statusFromWeb(res)
+    const name = userLabel(res, username)
 
-    // Aturan: cek sudah absen hari ini (WIB).
-    if (alreadyAbsenToday(number)) {
-        const rec = getAttendanceRecord(number)
-        await m.react("⚠️")
-        return m.reply(
-            card(
-                "ABSEN",
-                [
-                    "Kamu udah absen hari ini. 😊",
-                    "",
-                    rec ? `⏳ Aman sampai: ${formatWIB(rec.expires_at)}` : "",
-                    "Absen berikutnya bisa besok."
-                ].filter(Boolean),
-                { emoji: "📋" }
-            )
-        )
+    if (!res.success) {
+        await m.react(res.code === "already_absen" ? "⚠️" : "❌")
+        const lines = [res.error || "Absen gagal."]
+
+        if (res.code === "already_absen" && st.record) {
+            lines.push("")
+            lines.push(`⏳ Aman sampai: ${formatWIB(st.expiresAtMs)}`)
+            lines.push("Absen berikutnya bisa besok.")
+        }
+
+        return m.reply(card("ABSEN", lines, { emoji: "📋" }))
     }
 
-    // Lakukan absen → berlaku 24 jam (identik do_absen_web).
-    const expiresAt = doAbsen(number, { number, username, chat: m.chat })
     await m.react("✅")
     return m.reply(
         card(
             "ABSEN BERHASIL",
             [
-                `👤 ${username}`,
+                `👤 ${name}`,
                 "",
                 "✅ Absen berhasil!",
-                `⏳ Aman sampai: ${formatWIB(expiresAt)}`,
+                `⏳ Aman sampai: ${formatWIB(st.expiresAtMs || ms(res.expires_at))}`,
                 "",
-                "Jangan lupa absen lagi sebelum 24 jam habis ya."
+                "Data sudah masuk ke website NexHost. Jangan lupa absen lagi sebelum 24 jam habis ya."
             ],
             { emoji: "🎉" }
         )
     )
 }
 
-// ─── Tampilkan status detail ───
-async function showStatus(sock, m, number) {
-    const st = getStatus(number)
+async function showStatus(m, number) {
+    const res = await callWebAbsen("status", number)
+    const st = statusFromWeb(res)
+
+    if (!res.success) {
+        return m.reply(card("STATUS ABSEN", [res.error || "Gagal mengambil status absen."], { emoji: "📊" }))
+    }
+
     if (!st.record) {
         return m.reply(
             card("STATUS ABSEN", ["Belum ada data absen.", "", `Ketik ${global.prefix}absen untuk mulai.`], {
@@ -131,15 +205,15 @@ async function showStatus(sock, m, number) {
             })
         )
     }
+
     const lines = [
-        `Absen terakhir: ${formatWIB(st.record.last_absen_ts)}`,
-        `Berlaku sampai: ${formatWIB(st.expiresAt)}`,
+        `Absen terakhir: ${formatWIB(st.lastAbsenMs)}`,
+        `Berlaku sampai: ${formatWIB(st.expiresAtMs)}`,
         ""
     ]
-    if (st.active) {
-        lines.push(`✅ AKTIF — sisa ${formatRemaining(st.remainingMs)}`)
-    } else {
-        lines.push("❌ SUDAH HABIS — silakan absen lagi.")
-    }
+
+    if (st.active) lines.push(`✅ AKTIF — sisa ${formatRemaining(st.remainingMs)}`)
+    else lines.push("❌ SUDAH HABIS — silakan absen lagi.")
+
     return m.reply(card("STATUS ABSEN", lines, { emoji: "📊" }))
 }
