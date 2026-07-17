@@ -39,25 +39,17 @@ export default {
 }
 
 function webConfig() {
-    let base = (
-        global.absenWeb?.portalUrl ||
+    const base = (
         global.absenWeb?.apiUrl ||
         global.absenWeb?.baseUrl ||
         global.license?.apiUrl ||
-        process.env.PORTAL_URL ||
         process.env.NEXHOST_WEB_URL ||
         process.env.CHAEUL_WEB_URL ||
         ""
     ).replace(/\/+$/, "")
 
-    const apiPort = global.absenWeb?.apiPort || process.env.API_PORT || ""
-    // Kalau PORTAL_URL belum menyertakan port dan API_PORT memang dipakai untuk web API,
-    // bot tetap support format env lama: PORTAL_URL=http://127.0.0.1 + API_PORT=xxxx.
-    if (base && apiPort && /^https?:\/\/[^/:]+$/i.test(base)) base = `${base}:${apiPort}`
-
     const secret =
         global.absenWeb?.secret ||
-        process.env.API_SECRET ||
         process.env.WA_BOT_API_SECRET ||
         process.env.NEXHOST_WA_BOT_SECRET ||
         ""
@@ -72,7 +64,7 @@ async function callWebAbsen(action, phone) {
             success: false,
             code: "bot_config_missing",
             error:
-                "Konfigurasi absen web belum lengkap. Set PORTAL_URL dan API_SECRET di .env bot."
+                "Konfigurasi absen web belum lengkap. Set NEXHOST_WEB_URL/CHAEUL_WEB_URL dan WA_BOT_API_SECRET di .env bot."
         }
     }
 
