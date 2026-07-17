@@ -24,6 +24,9 @@ export default {
 
     description: "Absen harian — server aman 24 jam (pakai tombol)",
 
+    // Absensi wajib gratis: jangan potong token user.
+    free: true,
+
     async run({ sock, m, command }) {
         // Identitas user = nomor WA (analog 'email' di web).
         const number = (await resolvePn(sock, m, m.sender)).replace(/[^0-9]/g, "")
@@ -54,7 +57,7 @@ async function showPanel(sock, m, number, username) {
         lines.push(`⏳ Berlaku sampai: ${formatWIB(st.expiresAt)}`)
         lines.push(`   Sisa waktu: ${formatRemaining(st.remainingMs)}`)
         lines.push("")
-        lines.push("Absen lagi kapan saja untuk reset timer 24 jam.")
+        lines.push("Kamu hanya bisa absen 1x per hari (WIB), sama seperti sistem web.")
     } else {
         lines.push("❌ Kamu BELUM absen hari ini.")
         lines.push("")
@@ -78,6 +81,9 @@ async function showPanel(sock, m, number, username) {
 
 // ─── Proses absen (port dari absen.php) ───
 async function doAbsenFlow(m, number, username) {
+    // Tombol sudah dikunci dari Button.menu({ lock: m.sender }).
+    // Handler akan mengabaikan klik dari user lain sebelum sampai ke sini.
+
     // Aturan: cek sudah absen hari ini (WIB).
     if (alreadyAbsenToday(number)) {
         const rec = getAttendanceRecord(number)
