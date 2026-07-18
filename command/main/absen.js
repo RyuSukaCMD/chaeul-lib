@@ -60,6 +60,15 @@ function statusLines(res, st, username = "") {
         return ["❌ " + (res?.error || "Gagal cek status absen."), res?.detail || ""].filter(Boolean)
     }
 
+    if (res?.premium || res?.code === "premium_skip" || res?.user?.role === "premium") {
+        return [
+            "💎 Role kamu adalah *Premium*.",
+            "Premium tidak wajib absen, jadi server kamu tidak masuk sistem suspend absen.",
+            "",
+            "Tidak perlu tekan tombol Absen Sekarang."
+        ]
+    }
+
     if (!st.record) {
         return [
             "⚠️ Kamu belum absen.",
@@ -103,11 +112,16 @@ async function showPanel(sock, m, number, username) {
         return sendPanel(sock, m, card("ABSEN HARIAN", lines), portalButton())
     }
 
-    return sendPanel(sock, m, card("ABSEN HARIAN", lines), [
-        { type: "quick", text: "✅ Absen Sekarang", id: `absen_do:${number}` },
+    const st = absenStatus(res)
+    const buttons = [
         { type: "quick", text: "📊 Cek Status", id: `absen_status:${number}` },
         { type: "url", text: "🌐 Portal", url: PORTAL_URL }
-    ])
+    ]
+    // Jika sudah absen/masih aktif atau user Premium, jangan tampilkan tombol Absen Sekarang.
+    if (!st.active && !(res?.premium || res?.code === "premium_skip" || res?.user?.role === "premium")) {
+        buttons.unshift({ type: "quick", text: "✅ Absen Sekarang", id: `absen_do:${number}` })
+    }
+    return sendPanel(sock, m, card("ABSEN HARIAN", lines), buttons)
 }
 
 async function doAbsenFlow(sock, m, number, username) {
@@ -123,6 +137,13 @@ async function doAbsenFlow(sock, m, number, username) {
         return m.reply(card("ABSEN", lines))
     }
 
+    if (res?.premium || res?.code === "premium_skip" || res?.user?.role === "premium") {
+        await m.react("💎")
+        return sendPanel(sock, m, card("ABSEN PREMIUM", lines, "💎"), portalButton([
+            { type: "quick", text: "📊 Cek Status", id: `absen_status:${number}` }
+        ]))
+    }
+
     await m.react("✅")
     return m.reply(card("ABSEN BERHASIL", [
         `Email : ${res?.user?.email || "-"}`,
@@ -130,7 +151,8 @@ async function doAbsenFlow(sock, m, number, username) {
         `No WA : ${res?.user?.wa_number || number}`,
         "",
         "✅ Absen berhasil dicatat ke web.",
-        `Expired : ${formatWIB(st.exp || res.expires_at)}`,
+        // Expired time ini berasal dari response PHP (top-level expires_at / record dari web).
+        `Expired : ${formatWIB(st.exp)}`,
         "",
         "Jangan lupa absen lagi sebelum expired."
     ], "🎉"))
