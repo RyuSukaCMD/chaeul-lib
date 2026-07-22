@@ -1,18 +1,25 @@
 import Button from "../../lib/button.js"
 import { card } from "../../lib/ui.js"
 import { resolvePn } from "../../lib/resolve.js"
-import { getIsland, setIsland } from "../../lib/rpg.js"
-import { ISLANDS, ISLAND_ORDER, islandFishTotal } from "../../lib/island.js"
+import { getPlayer, getIsland, setIsland } from "../../lib/rpg.js"
+import {
+    ISLANDS,
+    ISLAND_ORDER,
+    islandFishTotal,
+    islandUnlocked,
+    islandUnlockText
+} from "../../lib/island.js"
 
 export default {
     command: ["island", "pulau", /^island_go:.+$/],
 
     category: "RPG",
 
-    description: "Ganti island memancing (semua GRATIS, tiap island beda ikan)",
+    description: "Ganti island memancing (island baru terbuka bertahap)",
 
     async run({ sock, m, command, args }) {
         const me = await resolvePn(sock, m, m.sender)
+        const player = getPlayer(me)
         const cur = getIsland(me)
 
         // ── Pindah island (tombol / .island <nama>) ──
@@ -27,6 +34,20 @@ export default {
 
         if (target && ISLANDS[target]) {
             const info = ISLANDS[target]
+            if (!islandUnlocked(player, target)) {
+                return m.reply(
+                    card(
+                        "ISLAND TERKUNCI",
+                        [
+                            `${info.emoji} *${info.name}* belum bisa dikunjungi.`,
+                            ``,
+                            `🔓 Syarat: ${islandUnlockText(player, target)}`,
+                            `📈 Level kamu: ${player.level}`
+                        ],
+                        { emoji: "🔒" }
+                    )
+                )
+            }
             if (target === cur) {
                 return m.reply(
                     card("ISLAND", `Kamu sudah di ${info.emoji} ${info.name}.`, { emoji: "🏝️" })
@@ -54,10 +75,13 @@ export default {
         // ── Daftar island (list button) ──
         const rows = ISLAND_ORDER.map((id) => {
             const info = ISLANDS[id]
+            const unlocked = islandUnlocked(player, id)
             const here = id === cur ? " ✅" : ""
             return {
-                title: `${info.emoji} ${info.name}${here}`,
-                description: `${islandFishTotal(id)} ikan • ${info.desc}`,
+                title: `${unlocked ? info.emoji : "🔒"} ${info.name}${here}`,
+                description: unlocked
+                    ? `${islandFishTotal(id)} ikan • ${info.desc}`
+                    : islandUnlockText(player, id),
                 id: `island_go:${id}`
             }
         })
@@ -69,8 +93,9 @@ export default {
                 "PILIH ISLAND",
                 [
                     `📍 Lokasi kamu: ${ISLANDS[cur].emoji} ${ISLANDS[cur].name}`,
+                    `📈 Level: ${player.level}`,
                     ``,
-                    `Semua island GRATIS! 🎉`,
+                    `Pulau lama gratis; pulau baru terbuka bertahap. 🎉`,
                     `Pilih island di bawah untuk pindah.`
                 ],
                 { emoji: "🗺️" }

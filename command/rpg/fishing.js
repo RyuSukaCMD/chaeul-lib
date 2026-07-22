@@ -4,6 +4,8 @@ import { resolvePn, tag } from "../../lib/resolve.js"
 import {
     getPlayer,
     addItem,
+    consumeBait,
+    getBait,
     addXp,
     cdLeft,
     setCd,
@@ -191,17 +193,7 @@ export default {
 
                 // Broadcast tangkapan ke website (feed live) — rarity langka saja
                 // agar feed tetap menarik (rare ke atas).
-                if (
-                    [
-                        "rare",
-                        "epic",
-                        "legendary",
-                        "mythical",
-                        "secret",
-                        "ephemeral",
-                        "unreal"
-                    ].includes(fish.rarity)
-                ) {
+                if (isRarePlus(fish.rarity)) {
                     const _u = getUser(me)
                     const uname = _u?.name || _u?.username || "Seseorang"
                     const fname = `${mutation ? mutation.name + " " : ""}${fish.name}`
@@ -257,6 +249,7 @@ export default {
                     [
                         header,
                         `${ISLANDS[sess.island].emoji} ${ISLANDS[sess.island].name}`,
+                        `🪱 Umpan: ${sess.bait?.emoji || "🪱"} ${sess.bait?.name || "Normal Bait"}`,
                         ``,
                         ...lines,
                         `💰 Total : $${totalValue.toLocaleString("id-ID")}`,
@@ -295,6 +288,19 @@ export default {
                 card("MANCING", `⏳ Sabar, tunggu ${fmtWait(left)} lagi.`, { emoji: "🎣" })
             )
         }
+
+        const bait = getBait(me)
+        if (!bait) {
+            return m.reply(
+                card(
+                    "MANCING",
+                    [`🪱 Umpanmu habis.`, `Beli Normal Bait gratis lewat ${global.prefix}buy.`, `Lihat umpan: ${global.prefix}bait`],
+                    { emoji: "🪱" }
+                )
+            )
+        }
+        if (!consumeBait(me, bait.id))
+            return m.reply(card("MANCING", "Umpan gagal dipakai, coba lagi.", { emoji: "🪱" }))
         if (!noCd) setCd(me, "fish")
 
         const reel = rodReel(p)
@@ -324,15 +330,17 @@ export default {
             })
         } catch {}
 
-        // 3) Luck (rod × event × enchant) + PITY
-        let luck = rodLuck(p)
+        // 3) Luck (rod × bait × event × enchant) + PITY
+        let luck = rodLuck(p) * (bait.rarityLuck || 1)
         if (ev.luck > 1) luck *= ev.luck
         if (ench.luckBoost > 1) luck *= ench.luckBoost
         if (island === "coral" && ench.coralRareBoost > 1) luck *= ench.coralRareBoost
 
+        const rarityModifiers = { newRarityBoost: bait.newRarityBoost || 1 }
+        const baitRoll = (pityValue = 0) => rollIslandRarity(island, luck, pityValue, rarityModifiers)
         const pityKey = island
         const pity = getPity(me, pityKey)
-        const { rarity } = rollIslandRarity(island, luck, pity)
+        const { rarity } = baitRoll(pity)
         if (isRarePlus(rarity)) resetPity(me, pityKey)
         else bumpPity(me, pityKey, 1)
 
@@ -344,9 +352,13 @@ export default {
             if (missing.length) fish = missing[Math.floor(Math.random() * missing.length)]
         }
 
-        // Mutation (event × enchant Mutator/Poseidon × Gold Hand).
+        // Mutation (bait × event × enchant Mutator/Poseidon × Gold Hand).
         // Haunted Sea: chance mutasi GHOST jauh lebih besar (ghostBoost).
-        const mutBonus = (ev.mutation || 1) * (ench.mutationBoost || 1)
+        const mutBonus =
+            (bait.mutationBoost || 1) *
+            (ISLANDS[island].mutationBoost || 1) *
+            (ev.mutation || 1) *
+            (ench.mutationBoost || 1)
         const ghostBoost = ISLANDS[island].ghostBoost || 1
         const rollMut = () => {
             let mut = rollMutation(mutBonus)
@@ -367,11 +379,11 @@ export default {
 
         // Enchant Double/Triple Reel: ikan tambahan
         if (ench.doubleCatch > 0 && Math.random() < ench.doubleCatch) {
-            const { rarity: r2 } = rollIslandRarity(island, luck, 0)
+            const { rarity: r2 } = baitRoll(0)
             fishes.push({ fish: randomIslandFish(island, r2), mutation: rollMut() })
         }
         if (ench.tripleChance > 0 && Math.random() < ench.tripleChance) {
-            const { rarity: r3 } = rollIslandRarity(island, luck, 0)
+            const { rarity: r3 } = baitRoll(0)
             fishes.push({ fish: randomIslandFish(island, r3), mutation: rollMut() })
         }
 
@@ -403,6 +415,7 @@ export default {
             chat: m.chat,
             island,
             fishes,
+            bait: { id: bait.id, name: bait.name, emoji: bait.emoji },
             stoneDrop,
             holyDrop,
             phases,

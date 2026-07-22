@@ -49,7 +49,8 @@ export default {
             } else if (key === STONE_ITEM) {
                 gear.push(`  ${STONE_INFO.emoji} ${STONE_INFO.name} ×${qty}`)
             } else if (ITEMS[key]) {
-                gear.push(`  ${ITEMS[key].emoji} ${ITEMS[key].name} ×${qty}`)
+                const active = ITEMS[key].type === "bait" && p.bait === key ? " (aktif)" : ""
+                gear.push(`  ${ITEMS[key].emoji} ${ITEMS[key].name}${active} ×${qty}`)
             } else {
                 gear.push(`  📦 ${key} ×${qty}`)
             }

@@ -8,6 +8,7 @@ const TYPE_LABEL = {
     armor: "Armor",
     potion: "Potion",
     rod: "Pancing",
+    bait: "Umpan",
     misc: "Item"
 }
 
@@ -26,6 +27,8 @@ export default {
             const id = command.split(":")[1]
             const item = ITEMS[id]
             if (!item) return m.reply(card("TOKO", "Item tidak ditemukan.", { emoji: "🛒" }))
+            if (typeof item.price !== "number")
+                return m.reply(card("TOKO", "Item ini tidak dijual di toko.", { emoji: "🛒" }))
 
             const p = getPlayer(me)
             if (p.money < item.price) {
@@ -52,6 +55,9 @@ export default {
             else if (item.type === "rod") {
                 addItem(me, id, 1)
                 updatePlayer(me, { rod: id }) // rod baru langsung dipakai
+            } else if (item.type === "bait") {
+                addItem(me, id, 1)
+                updatePlayer(me, { bait: id }) // bait baru langsung dipakai
             } else if (item.type === "misc" && item.energy) addEnergy(me, item.energy)
             else addItem(me, id, 1)
 
@@ -62,7 +68,9 @@ export default {
                       ? "\n🛡️ Armor terpasang."
                       : item.type === "rod"
                         ? "\n🎣 Pancing terpasang."
-                        : ""
+                        : item.type === "bait"
+                          ? "\n🪱 Umpan terpasang."
+                          : ""
 
             await m.react("✅")
             return m.reply(
@@ -85,6 +93,7 @@ export default {
             ["armor", "🛡️ Armor"],
             ["potion", "🧪 Healing"],
             ["rod", "🎣 Pancing"],
+            ["bait", "🪱 Umpan"],
             ["misc", "📦 Item Lain"]
         ]
 
@@ -96,6 +105,8 @@ export default {
             if (it.luck) desc += ` · Luck ×${it.luck}`
             if (it.reel) desc += ` · Reel ${it.reel}`
             if (it.energy) desc += ` · +${it.energy} Energy`
+            if (it.type === "bait")
+                desc += ` · Luck ×${it.rarityLuck} · Mutasi ×${it.mutationBoost}`
             return {
                 title: `${it.emoji} ${it.name} — $${it.price.toLocaleString("id-ID")}`,
                 description: desc,
@@ -106,7 +117,11 @@ export default {
         const sections = []
         for (const [type, title] of SECTION_ORDER) {
             const rows = Object.entries(ITEMS)
-                .filter(([, it]) => it.type === type && it.price > 0)
+                .filter(
+                    ([, it]) =>
+                        it.type === type &&
+                        (type === "bait" ? typeof it.price === "number" : it.price > 0)
+                )
                 .map(([id, it]) => rowFor(id, it))
             if (rows.length) sections.push({ title, rows })
         }
