@@ -3,7 +3,6 @@ import { resolvePn } from "../../lib/resolve.js"
 import { getPlayer, removeItem, addMoney, isFav, getEnchantId } from "../../lib/rpg.js"
 import { MUTATIONS, fishValue, fishDisplay } from "../../lib/fish.js"
 import { getFishById } from "../../lib/island.js"
-import { getStackedEffect } from "../../lib/events.js"
 import { enchantEffect } from "../../lib/enchant.js"
 
 const MUT_MAP = Object.fromEntries(MUTATIONS.map((mt) => [mt.id, mt]))
@@ -44,8 +43,6 @@ export default {
 
         // .sell all / .sell (default semua). .sell <rarity> → jual per rarity.
         const filter = args[0]?.toLowerCase()
-        // Buff harga jual: event Market Boom × enchant sellBoost
-        const priceMult = getStackedEffect().money || 1
         const sellBoost = 1 + (enchantEffect(getEnchantId(me)).sellBoost || 0)
 
         let total = 0
@@ -59,7 +56,7 @@ export default {
                 skippedFav++
                 continue
             }
-            const each = Math.round(fishValue(it.fish, it.mutation) * priceMult * sellBoost)
+            const each = Math.round(fishValue(it.fish, it.mutation) * sellBoost)
             const gain = each * it.qty
             removeItem(me, it.key, it.qty)
             addMoney(me, gain)

@@ -16,7 +16,7 @@ export default {
 
     category: "RPG",
 
-    description: "Pilih umpan aktif untuk memancing (terpakai 1 per cast)",
+    description: "Kelola bait fishing.",
 
     async run({ sock, m, command }) {
         const me = await resolvePn(sock, m, m.sender)
@@ -36,7 +36,7 @@ export default {
             return m.reply(
                 card(
                     "UMPAN AKTIF",
-                    [`✅ ${it.emoji} *${it.name}*`, ``, baitBonus(it), ``, `Terpakai 1 setiap mulai memancing.`],
+                    [`✅ ${it.emoji} *${it.name}*`, ``, baitBonus(it), ``, `Konsumsi: 1 per sesi.`],
                     { emoji: "🪱" }
                 )
             )
@@ -50,8 +50,7 @@ export default {
             const selected = active?.id === id
             return {
                 title: `${selected ? "✅ " : ""}${it.emoji} ${it.name} ×${qty}`,
-                description: `${baitBonus(it)}${qty > 0 ? " · Pilih untuk memakai" : " · Belum punya"}`,
-                id: `bait_use:${id}`
+                description: `${baitBonus(it)}${qty > 0 ? " · Tersedia" : " · Tidak tersedia"}`,                id: `bait_use:${id}`
             }
         })
 
@@ -59,15 +58,15 @@ export default {
             sock,
             m,
             body: card(
-                "SISTEM UMPAN",
+                "BAIT"
                 [
                     active
                         ? `🪱 Aktif: ${active.emoji} ${active.name} ×${active.qty}`
                         : `🪱 Aktif: tidak ada umpan`,
                     ``,
-                    `Umpan dikonsumsi 1 saat mulai memancing.`,
-                    `Beli tambahan: ${global.prefix}buy`,
-                    `Pilih umpan di bawah 👇`
+                    `Konsumsi: 1 per sesi fishing.`,
+                    `Beli: ${global.prefix}buy`,
+                    `Pilih bait.`
                 ],
                 { emoji: "🪱" }
             ),

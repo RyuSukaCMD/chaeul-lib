@@ -16,14 +16,15 @@ import {
     recordCatchStat,
     getIsland,
     getEnchantId,
+    setIsland,
     getPity,
     bumpPity,
     resetPity,
     getActiveQuest
 } from "../../lib/rpg.js"
 import { getQuest, questProgressLines, isQuestComplete } from "../../lib/quest.js"
-import { getStackedEffect } from "../../lib/events.js"
 import { RARITY, PHASE_RARITIES, rollMutation, fishValue, fishDisplay } from "../../lib/fish.js"
+import { getWeatherEffect } from "../../lib/fishingWeather.js"
 import {
     ISLANDS,
     ISLAND_CATALOG,
@@ -31,7 +32,8 @@ import {
     rollIslandRarity,
     isRarePlus,
     islandFishTotal,
-    fishIslandIndex
+    fishIslandIndex,
+    islandUnlocked
 } from "../../lib/island.js"
 import { enchantEffect, STONE_ITEM, STONE_INFO } from "../../lib/enchant.js"
 import { pushFishing } from "../../lib/license.js"
@@ -90,10 +92,10 @@ async function sendPhaseButtons(sock, m, sess) {
         body: card(
             "TARIK KAIL!",
             [
-                `${tag(owner)}, 🎯 *KLIK TOMBOL SESUAI URUTAN!*`,
+                `${tag(owner)} · susun tombol sesuai urutan.`,
                 ``,
-                `Urutan: 1 → ${count}`,
-                `⏳ Cepat sebelum kabur!`
+                `Urutan 1 → ${count}`,
+                `Tarik kail sebelum waktu habis.`
             ],
             { emoji: "🎣" }
         ),
@@ -109,7 +111,7 @@ export default {
 
     category: "RPG",
 
-    description: "Memancing ikan (minigame urutan tombol)",
+    description: "Fishing dengan minigame reaksi.",
 
     async run({ sock, m, command }) {
         const me = await resolvePn(sock, m, m.sender)
@@ -132,9 +134,7 @@ export default {
                 sessions.delete(sid)
                 releaseLock(sess.chat, sid)
                 return m.reply(
-                    card("MANCING", "😩 Yah, ikannya lepas!\nSemoga beruntung lain kali!", {
-                        emoji: "🎣"
-                    }),
+                    card("FISHING", "Kail terlepas. Coba lagi.", { emoji: "🎣" }),
                     { mentions: [sess.owner] }
                 )
             }
@@ -153,7 +153,6 @@ export default {
             sessions.delete(sid)
             releaseLock(sess.chat, sid)
 
-            const ev = getStackedEffect()
             const ench = enchantEffect(getEnchantId(me))
             const lines = []
             let totalValue = 0
@@ -178,7 +177,6 @@ export default {
                 if (leveled) anyLevel = true
 
                 let value = fishValue(fish, mutation)
-                if (ev.money > 1) value = Math.round(value * ev.money) // Market Boom
                 if (ench.sellBoost) value = Math.round(value * (1 + ench.sellBoost)) // enchant
                 totalValue += value
 
@@ -187,8 +185,8 @@ export default {
                 const total = islandFishTotal(sess.island)
 
                 lines.push(`${fishDisplay(fish, mutation)}`)
-                if (isNew) lines.push(`🆕 IKAN BARU! Index #${idx}/${total}`)
-                lines.push(`${rar.emoji} ${rar.label} • 💰 $${value.toLocaleString("id-ID")}`)
+                if (isNew) lines.push(`Baru · Index #${idx}/${total}`)
+                lines.push(`${rar.emoji} ${rar.label} · $${value.toLocaleString("id-ID")}`)
                 lines.push(``)
 
                 // Broadcast tangkapan ke website (feed live) — rarity langka saja
@@ -211,15 +209,15 @@ export default {
             // Enchant stone drop (dari Sacred Jungle, dipancing seperti ikan)
             if (sess.stoneDrop) {
                 addItem(me, STONE_ITEM, 1)
-                lines.push(`🎁 BONUS: ${STONE_INFO.emoji} ${STONE_INFO.name}!`)
-                lines.push(`   Pakai untuk ${global.prefix}enchant`)
+                lines.push(`Bonus · ${STONE_INFO.emoji} ${STONE_INFO.name}`)
+                lines.push(`Gunakan ${global.prefix}enchant untuk memasang enchant.`)
                 lines.push(``)
             }
             // Holy String drop (quest Rock'in Guitar)
             if (sess.holyDrop) {
                 addItem(me, "holystring", 1)
-                lines.push(`🎁 LANGKA: 🎼 Holy String!`)
-                lines.push(`   Bahan quest — cek ${global.prefix}quest`)
+                lines.push(`Quest item · 🎼 Holy String`)
+                lines.push(`Progress: ${global.prefix}quest`)
                 lines.push(``)
             }
 
@@ -238,18 +236,21 @@ export default {
                     questLines.push(`📜 Quest: ${q.emoji} ${q.name}`)
                     questLines.push(...questProgressLines(me, activeQ))
                     if (isQuestComplete(me, activeQ)) {
-                        questLines.push(`🎉 SIAP KLAIM! Ketik ${global.prefix}quest`)
+                        questLines.push(`Quest siap diklaim · ${global.prefix}quest`)
                     }
                 }
             }
 
             return m.reply(
                 card(
-                    "MANCING BERHASIL",
+                    "FISHING BERHASIL",
                     [
                         header,
                         `${ISLANDS[sess.island].emoji} ${ISLANDS[sess.island].name}`,
                         `🪱 Umpan: ${sess.bait?.emoji || "🪱"} ${sess.bait?.name || "Normal Bait"}`,
+                        sess.weather?.active?.length
+                            ? `☁️ Weather: ${sess.weather.active.map((item) => `${item.emoji} ${item.name}`).join(" + ")}`
+                            : "",
                         ``,
                         ...lines,
                         `💰 Total : $${totalValue.toLocaleString("id-ID")}`,
@@ -269,23 +270,29 @@ export default {
         if (m.isGroup && groupLock.has(m.chat)) {
             return m.reply(
                 card(
-                    "MANCING",
-                    "🎣 Ada yang sedang memancing di grup ini.\nTunggu sampai selesai ya!",
+                    "FISHING",
+                    "Sesi fishing sedang berlangsung. Tunggu hingga selesai.",
                     { emoji: "⏳" }
                 )
             )
         }
 
         const p = getPlayer(me)
-        const island = getIsland(me)
-        const ench = enchantEffect(getEnchantId(me))
-        const ev = getStackedEffect()
+        const weather = getWeatherEffect()
+        let island = getIsland(me)
+        if (!islandUnlocked(p, island, { weather: { shark_hunter: weather.sharkHunter } })) {
+            setIsland(me, "fisherman")
+            return m.reply(
+                card("FISHING", "Shark Island telah tertutup. Lokasi dikembalikan.", { emoji: "🦈" })
+            )
+        }
 
-        const noCd = ev.noFishCd
-        const left = noCd ? 0 : cdLeft(me, "fish", CONFIG.fishCooldown)
+        const ench = enchantEffect(getEnchantId(me))
+        const cooldown = Math.round(CONFIG.fishCooldown * weather.cooldownMultiplier)
+        const left = cdLeft(me, "fish", cooldown)
         if (left > 0) {
             return m.reply(
-                card("MANCING", `⏳ Sabar, tunggu ${fmtWait(left)} lagi.`, { emoji: "🎣" })
+                card("FISHING", `Cooldown ${fmtWait(left)}.`, { emoji: "🎣" })
             )
         }
 
@@ -293,23 +300,23 @@ export default {
         if (!bait) {
             return m.reply(
                 card(
-                    "MANCING",
-                    [`🪱 Umpanmu habis.`, `Beli Normal Bait gratis lewat ${global.prefix}buy.`, `Lihat umpan: ${global.prefix}bait`],
+                    "FISHING",
+                    [`Umpan habis.`, `Beli Normal Bait: ${global.prefix}buy`, `Kelola umpan: ${global.prefix}bait`],
                     { emoji: "🪱" }
                 )
             )
         }
         if (!consumeBait(me, bait.id))
-            return m.reply(card("MANCING", "Umpan gagal dipakai, coba lagi.", { emoji: "🪱" }))
-        if (!noCd) setCd(me, "fish")
+            return m.reply(card("FISHING", "Umpan gagal dipakai, coba lagi.", { emoji: "🪱" }))
+        setCd(me, "fish")
 
         const reel = rodReel(p)
 
         // 1) "Memancing..."
         const sent = await m.reply(
             card(
-                "MANCING",
-                `🎣 Memancing di ${ISLANDS[island].emoji} ${ISLANDS[island].name}...\nMelempar kail ke air...`,
+                "FISHING",
+                `🎣 ${ISLANDS[island].emoji} ${ISLANDS[island].name}\nMenunggu kail...`,
                 { emoji: "🎣" }
             )
         )
@@ -317,22 +324,19 @@ export default {
 
         // 2) Tunggu (reel + Lightning Reel mempercepat)
         const baseWait = 5000 + Math.floor(Math.random() * 5000)
-        let wait = baseWait - reel * 1500
+        let wait = (baseWait - reel * 1500) * weather.waitMultiplier
         if (ench.reelSpeed) wait = wait * (1 - ench.reelSpeed)
         wait = Math.max(1500, Math.round(wait))
         await new Promise((r) => setTimeout(r, wait))
         try {
             await sock.sendMessage(m.chat, {
-                text: card("MANCING", "❗ *Kail pancing bergerak!*\nBersiap menarik...", {
-                    emoji: "🎣"
-                }),
+                text: card("FISHING", "Kail tertarik. Selesaikan urutan tombol.", { emoji: "🎣" }),
                 edit: msgKey
             })
         } catch {}
 
-        // 3) Luck (rod × bait × event × enchant) + PITY
+        // 3) Luck (rod × bait × enchant) + PITY
         let luck = rodLuck(p) * (bait.rarityLuck || 1)
-        if (ev.luck > 1) luck *= ev.luck
         if (ench.luckBoost > 1) luck *= ench.luckBoost
         if (island === "coral" && ench.coralRareBoost > 1) luck *= ench.coralRareBoost
 
@@ -352,16 +356,14 @@ export default {
             if (missing.length) fish = missing[Math.floor(Math.random() * missing.length)]
         }
 
-        // Mutation (bait × event × enchant Mutator/Poseidon × Gold Hand).
-        // Haunted Sea: chance mutasi GHOST jauh lebih besar (ghostBoost).
+        // Mutation (bait × weather × enchant). Haunted Sea memberi bonus Ghost.
         const mutBonus =
             (bait.mutationBoost || 1) *
             (ISLANDS[island].mutationBoost || 1) *
-            (ev.mutation || 1) *
             (ench.mutationBoost || 1)
         const ghostBoost = ISLANDS[island].ghostBoost || 1
         const rollMut = () => {
-            let mut = rollMutation(mutBonus)
+            let mut = rollMutation(mutBonus, weather.mutationTags)
             // Boost ghost khusus Haunted Sea
             if (ghostBoost > 1 && (!mut || mut.id !== "ghost")) {
                 const ghost = { id: "ghost", name: "Ghost", emoji: "👻", mult: 3.5 }
@@ -416,6 +418,7 @@ export default {
             island,
             fishes,
             bait: { id: bait.id, name: bait.name, emoji: bait.emoji },
+            weather: { active: weather.active.map((item) => ({ name: item.name, emoji: item.emoji })) },
             stoneDrop,
             holyDrop,
             phases,
@@ -433,7 +436,7 @@ export default {
             if (s && !s.done) {
                 sessions.delete(sid)
                 sock.sendMessage(m.chat, {
-                    text: card("MANCING", `⌛ ${tag(me)} terlalu lama! Ikannya kabur. 🐟💨`, {
+                    text: card("FISHING", `Waktu habis, ${tag(me)}. Tangkapan terlepas.`, {
                         emoji: "🎣"
                     }),
                     mentions: [me]

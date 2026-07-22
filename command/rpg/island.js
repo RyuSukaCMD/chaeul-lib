@@ -9,18 +9,25 @@ import {
     islandUnlocked,
     islandUnlockText
 } from "../../lib/island.js"
+import { getWeatherEffect } from "../../lib/fishingWeather.js"
 
 export default {
     command: ["island", "pulau", /^island_go:.+$/],
 
     category: "RPG",
 
-    description: "Ganti island memancing (island baru terbuka bertahap)",
+    description: "Pilih lokasi fishing.",
 
     async run({ sock, m, command, args }) {
         const me = await resolvePn(sock, m, m.sender)
         const player = getPlayer(me)
-        const cur = getIsland(me)
+        const weather = getWeatherEffect()
+        const weatherOptions = { weather: { shark_hunter: weather.sharkHunter } }
+        let cur = getIsland(me)
+        if (!islandUnlocked(player, cur, weatherOptions) && cur === "shark_island") {
+            setIsland(me, "fisherman")
+            cur = "fisherman"
+        }
 
         // ── Pindah island (tombol / .island <nama>) ──
         let target = null
@@ -34,15 +41,15 @@ export default {
 
         if (target && ISLANDS[target]) {
             const info = ISLANDS[target]
-            if (!islandUnlocked(player, target)) {
+            if (!islandUnlocked(player, target, weatherOptions)) {
                 return m.reply(
                     card(
                         "ISLAND TERKUNCI",
                         [
                             `${info.emoji} *${info.name}* belum bisa dikunjungi.`,
                             ``,
-                            `🔓 Syarat: ${islandUnlockText(player, target)}`,
-                            `📈 Level kamu: ${player.level}`
+                            `🔓 Syarat: ${islandUnlockText(player, target, weatherOptions)}`,
+                            `📈 Level ${player.level}`
                         ],
                         { emoji: "🔒" }
                     )
@@ -57,7 +64,7 @@ export default {
             await m.react("🏝️")
             return m.reply(
                 card(
-                    "PINDAH ISLAND",
+                    "ISLAND"
                     [
                         `✅ Sekarang kamu di:`,
                         `${info.emoji} *${info.name}*`,
@@ -65,7 +72,7 @@ export default {
                         `🐟 ${islandFishTotal(target)} jenis ikan`,
                         info.stone ? `🔮 Bisa memancing Enchant Stone di sini!` : ``,
                         ``,
-                        `Ketik ${global.prefix}mancing untuk memancing!`
+                        `${global.prefix}mancing untuk mulai fishing.`
                     ].filter((x) => x !== ``),
                     { emoji: "🏝️" }
                 )
@@ -73,15 +80,18 @@ export default {
         }
 
         // ── Daftar island (list button) ──
-        const rows = ISLAND_ORDER.map((id) => {
+        const visibleIslands = ISLAND_ORDER.filter(
+            (id) => id !== "shark_island" || islandUnlocked(player, id, weatherOptions)
+        )
+        const rows = visibleIslands.map((id) => {
             const info = ISLANDS[id]
-            const unlocked = islandUnlocked(player, id)
+            const unlocked = islandUnlocked(player, id, weatherOptions)
             const here = id === cur ? " ✅" : ""
             return {
                 title: `${unlocked ? info.emoji : "🔒"} ${info.name}${here}`,
                 description: unlocked
                     ? `${islandFishTotal(id)} ikan • ${info.desc}`
-                    : islandUnlockText(player, id),
+                    : islandUnlockText(player, id, weatherOptions),
                 id: `island_go:${id}`
             }
         })
@@ -92,16 +102,18 @@ export default {
             body: card(
                 "PILIH ISLAND",
                 [
-                    `📍 Lokasi kamu: ${ISLANDS[cur].emoji} ${ISLANDS[cur].name}`,
-                    `📈 Level: ${player.level}`,
+                    `📍 ${ISLANDS[cur].emoji} ${ISLANDS[cur].name}`,
+                    `📈 Level ${player.level}`,
+                    weather.active.length
+                        ? `☁️ ${weather.active.map((item) => `${item.emoji} ${item.name}`).join(" + ")}`
+                        : `☁️ Weather normal`,
                     ``,
-                    `Pulau lama gratis; pulau baru terbuka bertahap. 🎉`,
-                    `Pilih island di bawah untuk pindah.`
+                    `Pilih lokasi.`
                 ],
                 { emoji: "🗺️" }
             ),
             footer: "© Chaeul RPG",
-            listTitle: "🗺️ Pilih Island",
+            listTitle: "Pilih Lokasi",
             sections: [{ title: "✦ ISLAND TERSEDIA", rows }]
         })
     }
