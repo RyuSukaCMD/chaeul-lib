@@ -90,7 +90,7 @@ async function targetPrompt(sock, m, me) {
         lock: me,
         buttons: [
             { type: "quick", text: "Self", id: "adminpanel_target:self" },
-            { type: "quick", text: "Batal", id: "adminpanel_cancel_" }
+            { type: "quick", text: "Batal", id: "adminpanel_cancel" }
         ]
     })
 }
@@ -195,9 +195,9 @@ export default {
         /^adminpanel_weather_set:.+$/,
         /^adminpanel_weather_unset:.+$/,
         "adminpanel_weather_clear",
-        "adminpanel_confirm_",
+        "adminpanel_confirm",
         "adminpanel_refresh",
-        "adminpanel_cancel_"
+        "adminpanel_cancel"
     ],
 
     owner: true,
@@ -213,7 +213,7 @@ export default {
             return sendPanel(sock, m, me)
         }
 
-        if (command === "adminpanel_cancel_") {
+        if (command === "adminpanel_cancel") {
             clearAdminPanel(me)
             return m.reply(card("ADMINPANEL", "Dibatalkan.", { emoji: "↩️" }))
         }
@@ -259,8 +259,8 @@ export default {
                     footer: "Adminpanel",
                     lock: me,
                     buttons: [
-                        { type: "quick", text: "Konfirmasi", id: "adminpanel_confirm_" },
-                        { type: "quick", text: "Batal", id: "adminpanel_cancel_" }
+                        { type: "quick", text: "Konfirmasi", id: "adminpanel_confirm" },
+                        { type: "quick", text: "Batal", id: "adminpanel_cancel" }
                     ],
                     mentions: [session.target]
                 })
@@ -329,7 +329,7 @@ export default {
             return completeGrant(m, session, `${item.emoji} ${item.name}`, id)
         }
 
-        if (command === "adminpanel_confirm_") {
+        if (command === "adminpanel_confirm") {
             const session = getAdminPanel(me)
             if (!session || session.step !== "confirm") return
             if (session.action === "money") return completeGrant(m, session, "Uang", null)
