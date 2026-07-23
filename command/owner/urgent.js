@@ -1,17 +1,34 @@
 import { card } from "../../lib/ui.js"
+import Button from "../../lib/button.js"
 import {
     isUrgentOpen,
     findServerNode,
     isNodeBlacklisted,
     isNodeAllowed,
     getUrgentConfig,
-    claimUUID
+    getClaimedUUIDs,
+    claimUUID,
+    getDefaultNode,
+    // Port system
+    hasActiveLock,
+    getLockInfo,
+    createLock,
+    updateLockPort,
+    releaseLock,
+    isPortLocked,
+    getAvailablePortList,
+    isPortAvailable,
+    generateAvailablePort
 } from "../../lib/urgent.js"
+import { getConfig } from "../../lib/pterodactyl.js"
+
+// Session storage untuk port request (dalam memory)
+const portSessions = new Map()
 
 export default {
     command: ["urgent"],
 
-    category: "Owner",
+    category: "User",
 
     description: "Claim server darurat (Emergency)",
 
@@ -29,6 +46,29 @@ export default {
                         "_Hubungi owner untuk info lebih lanjut._"
                     ],
                     { emoji: "🔴" }
+                )
+            )
+        }
+
+        // ─── Cek apakah user sudah punya lock aktif ───
+        if (hasActiveLock(m.sender)) {
+            const lock = getLockInfo(m.sender)
+            return m.reply(
+                card(
+                    "PORT REQUEST AKTIF",
+                    [
+                        "⚠️ Kamu masih punya request yang belum selesai.",
+                        "",
+                        `📋 UUID: ${lock.uuid?.substring(0, 12)}...`,
+                        lock.port ? `🔌 Port: ${lock.port}` : "",
+                        "",
+                        `Sisa waktu: ${Math.ceil((lock.expiresAt - Date.now()) / 60000)} menit`,
+                        "",
+                        "Ketik nomor port yang kamu inginkan:",
+                        "",
+                        `_Contoh: 25565_"
+                    ],
+                    { emoji: "⏳" }
                 )
             )
         }
@@ -51,7 +91,8 @@ export default {
                         "⚠️ *Perhatian:*",
                         "• Server harus dari node yang *TIDAK* diblacklist",
                         "• Satu UUID hanya bisa di-claim *sekali*",
-                        "• Kamu akan mendapat server *identik* dengan server asli"
+                        "• Kamu akan mendapat server *identik* dengan server asli",
+                        "• Port akan dipilih setelah UUID diverifikasi"
                     ],
                     { emoji: "🚨" }
                 )
@@ -66,10 +107,9 @@ export default {
         }
 
         // ─── Cek apakah UUID sudah di-claim ───
-        const { getClaimedUUIDs } = await import("../../lib/urgent.js")
         const allClaimed = getClaimedUUIDs()
-        const claimInfo = allClaimed[uuid.toLowerCase()]
-        if (claimInfo) {
+        if (allClaimed[uuid.toLowerCase()]) {
+            const claimInfo = allClaimed[uuid.toLowerCase()]
             return m.reply(
                 card(
                     "ALREADY CLAIMED",
@@ -148,13 +188,11 @@ export default {
                 )
             }
 
-            // ─── Proses Clone ───
-            await m.reply("⏳ Membuat server emergency...")
-
+            // ─── Cek default node untuk target ───
             const config = getUrgentConfig()
-            const defaultNodeId = config.defaultNode
+            const targetNodeId = config.defaultNode
 
-            if (!defaultNodeId) {
+            if (!targetNodeId) {
                 return m.reply(
                     card(
                         "CONFIG ERROR",
@@ -168,53 +206,78 @@ export default {
                 )
             }
 
-            // Import cloneServer di sini untuk lazy load
-            const { cloneServer } = await import("../../lib/urgent.js")
+            // ─── Proses Port Request ───
+            // Buat lock untuk user
+            createLock(m.sender, uuid)
 
-            const newServer = await cloneServer(server, defaultNodeId)
+            // Ambil port yang tersedia
+            const availablePorts = await getAvailablePortList(targetNodeId, 5)
+            
+            // Generate auto port
+            const autoPort = await generateAvailablePort(targetNodeId)
+            
+            // Simpan session
+            portSessions.set(m.sender, {
+                uuid,
+                server,
+                node,
+                nodeId,
+                nodeName,
+                targetNodeId,
+                availablePorts,
+                autoPort,
+                createdAt: Date.now()
+            })
 
-            // ─── Simpan claim ───
-            const newServerId = newServer.attributes?.id || newServer.id
-            claimUUID(uuid, m.sender, newServerId)
+            // ─── Tampilkan pilihan port ───
+            let portOptions = ""
+            for (const port of availablePorts) {
+                portOptions += `├ 🔌 \`${port}\`\n`
+            }
 
-            // ─── Success Message ───
             const serverName = server.attributes?.name || server.name || "Server"
-            const newServerName = newServer.attributes?.name || newServer.name || `${serverName}_URGENT`
 
             return m.reply(
                 card(
-                    "✅ URGENT SUCCESS",
+                    "🔌 PILIH PORT",
                     [
-                        "🎉 Server berhasil di-clone!",
+                        "✅ Server ditemukan!",
                         "",
                         "─────────────────",
                         "",
                         "📋 *Detail Server Lama:*",
                         `├ Name: ${serverName}`,
-                        `├ UUID: ${uuid}`,
+                        `├ UUID: ${uuid.substring(0, 12)}...`,
                         `├ Node: ${nodeName}`,
-                        "",
-                        "📋 *Detail Server Baru:*",
-                        `├ Name: ${newServerName}`,
-                        `├ UUID: ${newServerId}`,
-                        `├ Node ID: ${defaultNodeId}`,
                         "",
                         "─────────────────",
                         "",
-                        "✅ Server baru sudah dibuat dan siap digunakan!",
+                        "🔌 *Pilih Port:*",
                         "",
-                        "_Silakan cek panel untuk menghidupkan server baru._"
+                        portOptions || "",
+                        "├ 🔄 *Auto* (port acak)",
+                        "",
+                        "─────────────────",
+                        "",
+                        "Ketik nomor port yang kamu inginkan.",
+                        `Port auto: *${autoPort}*`,
+                        "",
+                        `_Contoh ketik: 25565_`,
+                        `_atau ketik: auto_`,
+                        "",
+                        "⚠️ Port akan di-lock selama 5 menit."
                     ],
-                    { emoji: "🎉" }
+                    { emoji: "🔌" }
                 )
             )
         } catch (error) {
             console.error("[Urgent Error]", error)
+            releaseLock(m.sender)
             return m.reply(
                 card(
                     "ERROR",
                     [
-                        `❌ Gagal membuat emergency server.`,
+                        `❌ Gagal mencari server.`,
                         "",
                         `*Error:* ${error.message}`,
                         "",
@@ -225,4 +288,227 @@ export default {
             )
         }
     }
+}
+
+// ─── Port Input Handler ───
+// Handle input port dari user (dipanggil dari handler.js)
+// Export fungsi ini untuk dipanggil dari luar
+
+export async function handlePortInput(sock, m, input) {
+    const sender = m.sender
+    
+    // Cek apakah user punya session
+    const session = portSessions.get(sender)
+    if (!session) {
+        return null // Bukan port input, biarkan handle lain
+    }
+
+    const inputPort = String(input).trim().toLowerCase()
+    
+    // ─── Handle "auto" ───
+    if (inputPort === "auto" || inputPort === "acak" || inputPort === "random") {
+        const { uuid, server, targetNodeId } = session
+        
+        await m.reply("⏳ Membuat server dengan port auto...")
+        
+        try {
+            const { cloneServer } = await import("../../lib/urgent.js")
+            
+            // Generate port dan lock
+            const autoPort = await generateAvailablePort(targetNodeId)
+            if (!autoPort) {
+                releaseLock(sender)
+                portSessions.delete(sender)
+                return m.reply(card("ERROR", ["❌ Tidak ada port tersedia."], { emoji: "❌" }))
+            }
+            
+            updateLockPort(sender, autoPort)
+            
+            // Clone server
+            const newServer = await cloneServer(server, targetNodeId, autoPort)
+            
+            // Simpan claim
+            const newServerId = newServer.attributes?.id || newServer.id
+            claimUUID(uuid, sender, newServerId)
+            
+            // Release lock
+            releaseLock(sender)
+            portSessions.delete(sender)
+            
+            const serverName = server.attributes?.name || server.name || "Server"
+            const newServerName = newServer.attributes?.name || newServer.name || `${serverName}_URGENT`
+            
+            return m.reply(
+                card(
+                    "✅ URGENT SUCCESS",
+                    [
+                        "🎉 Server berhasil di-clone!",
+                        "",
+                        "─────────────────",
+                        "",
+                        "📋 *Server Lama:*",
+                        `├ Name: ${serverName}`,
+                        `├ UUID: ${uuid.substring(0, 12)}...`,
+                        "",
+                        "📋 *Server Baru:*",
+                        `├ Name: ${newServerName}`,
+                        `├ UUID: ${newServerId}`,
+                        `├ 🔌 Port: ${autoPort}`,
+                        `├ Node: ${targetNodeId}`,
+                        "",
+                        "─────────────────",
+                        "",
+                        "✅ Server baru sudah dibuat dan siap digunakan!"
+                    ],
+                    { emoji: "🎉" }
+                )
+            )
+        } catch (error) {
+            releaseLock(sender)
+            portSessions.delete(sender)
+            console.error("[Urgent Port Auto Error]", error)
+            return m.reply(
+                card("ERROR", [`❌ Gagal: ${error.message}`], { emoji: "❌" })
+            )
+        }
+    }
+    
+    // ─── Handle port number ───
+    const port = parseInt(inputPort)
+    
+    if (isNaN(port) || port < 1 || port > 65535) {
+        return m.reply(
+            card("ERROR", [
+                "❌ Port tidak valid.",
+                "",
+                "Port harus angka antara 1-65535.",
+                `_Contoh: 25565_`
+            ], { emoji: "❌" })
+        )
+    }
+    
+    const { uuid, server, nodeName, targetNodeId } = session
+    
+    // Cek apakah port sedang di-lock orang lain
+    const lockStatus = isPortLocked(port, sender)
+    if (lockStatus.locked) {
+        return m.reply(
+            card("PORT TAKEN", [
+                `❌ Port *${port}* sedang diproses user lain.`,
+                "",
+                "Silakan pilih port lain atau ketik *auto* untuk port acak.",
+                "",
+                `_Contoh ketik: 25565_`,
+                `_atau ketik: auto_`
+            ], { emoji: "🔌" })
+        )
+    }
+    
+    // Cek apakah port tersedia di node
+    const available = await isPortAvailable(targetNodeId, port)
+    if (!available) {
+        // Tampilkan port yang tersedia
+        const newAvailable = await getAvailablePortList(targetNodeId, 5)
+        let options = ""
+        for (const p of newAvailable) {
+            options += `├ 🔌 \`${p}\`\n`
+        }
+        
+        return m.reply(
+            card("PORT TAKEN", [
+                `❌ Port *${port}* sudah digunakan atau tidak tersedia.`,
+                "",
+                "Port yang tersedia:",
+                options,
+                "├ 🔄 *auto* (port acak)",
+                "",
+                "Pilih port lain atau ketik *auto*."
+            ], { emoji: "🔌" })
+        )
+    }
+    
+    // ─── Port valid, proses clone ───
+    await m.reply("⏳ Membuat server dengan port yang dipilih...")
+    
+    try {
+        const { cloneServer } = await import("../../lib/urgent.js")
+        
+        // Lock port
+        updateLockPort(sender, port)
+        
+        // Clone server
+        const newServer = await cloneServer(server, targetNodeId, port)
+        
+        // Simpan claim
+        const newServerId = newServer.attributes?.id || newServer.id
+        claimUUID(uuid, sender, newServerId)
+        
+        // Release lock
+        releaseLock(sender)
+        portSessions.delete(sender)
+        
+        const serverName = server.attributes?.name || server.name || "Server"
+        const newServerName = newServer.attributes?.name || newServer.name || `${serverName}_URGENT`
+        
+        return m.reply(
+            card(
+                "✅ URGENT SUCCESS",
+                [
+                    "🎉 Server berhasil di-clone!",
+                    "",
+                    "─────────────────",
+                    "",
+                    "📋 *Server Lama:*",
+                    `├ Name: ${serverName}`,
+                    `├ UUID: ${uuid.substring(0, 12)}...`,
+                    "",
+                    "📋 *Server Baru:*",
+                    `├ Name: ${newServerName}`,
+                    `├ UUID: ${newServerId}`,
+                    `├ 🔌 Port: ${port}`,
+                    `├ Node: ${targetNodeId}`,
+                    "",
+                    "─────────────────",
+                    "",
+                    "✅ Server baru sudah dibuat dan siap digunakan!"
+                ],
+                { emoji: "🎉" }
+            )
+        )
+    } catch (error) {
+        releaseLock(sender)
+        portSessions.delete(sender)
+        console.error("[Urgent Clone Error]", error)
+        
+        // Cek jika error karena port
+        if (error.message.includes("Port")) {
+            return m.reply(
+                card("PORT ERROR", [
+                    `❌ ${error.message}`,
+                    "",
+                    "Silakan coba dengan port lain atau ketik *auto*."
+                ], { emoji: "❌" })
+            )
+        }
+        
+        return m.reply(
+            card("ERROR", [`❌ Gagal: ${error.message}`], { emoji: "❌" })
+        )
+    }
+}
+
+// Export session checker untuk handler
+export function hasPortSession(sender) {
+    return portSessions.has(sender)
+}
+
+// Export cancel function
+export function cancelPortSession(sender) {
+    const session = portSessions.get(sender)
+    if (session) {
+        releaseLock(sender)
+        portSessions.delete(sender)
+        return true
+    }
+    return false
 }
