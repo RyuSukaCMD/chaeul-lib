@@ -9,6 +9,7 @@ import {
     claimUUID,
     getIpAlias,
     getIpAddress,
+    notifyPlta,
     // Port system
     hasActiveLock,
     getLockInfo,
@@ -306,7 +307,7 @@ export async function handlePortInput(sock, m, input) {
     
     // ─── Handle "auto" ───
     if (inputPort === "auto" || inputPort === "acak" || inputPort === "random") {
-        const { uuid, server, targetNodeId } = session
+        const { uuid, server, nodeName, targetNodeId } = session
         
         await m.reply("⏳ Membuat server dengan port auto...")
         
@@ -326,18 +327,38 @@ export async function handlePortInput(sock, m, input) {
             // Clone server
             const newServer = await cloneServer(server, targetNodeId, autoPort)
             
-            // Simpan claim
+            // Simpan claim dengan data lengkap
             const newServerId = newServer.attributes?.id || newServer.id
-            claimUUID(uuid, sender, newServerId)
+            const ipAlias = getIpAlias()
+            const ipAddress = getIpAddress()
+            const serverName = server.attributes?.name || server.name || "Server"
+            
+            claimUUID(uuid, sender, newServerId, {
+                port: autoPort,
+                ipAlias: ipAlias,
+                ipAddress: ipAddress,
+                targetNode: String(targetNodeId),
+                originalNode: nodeName,
+                serverName: serverName
+            })
+            
+            // Kirim notifikasi PLTA
+            notifyPlta({
+                uuid: uuid,
+                ownerJid: sender,
+                newServerId: newServerId,
+                serverName: serverName,
+                port: autoPort,
+                ipAlias: ipAlias,
+                ipAddress: ipAddress,
+                targetNode: String(targetNodeId)
+            })
             
             // Release lock
             releaseLock(sender)
             portSessions.delete(sender)
             
-            const serverName = server.attributes?.name || server.name || "Server"
             const newServerName = newServer.attributes?.name || newServer.name || `${serverName}_URGENT`
-            const ipAlias = getIpAlias()
-            const ipAddress = getIpAddress()
             
             return m.reply(
                 card(
@@ -350,6 +371,7 @@ export async function handlePortInput(sock, m, input) {
                         "📋 *Server Lama:*",
                         `├ Name: ${serverName}`,
                         `├ UUID: ${uuid.substring(0, 12)}...`,
+                        `├ Node: ${nodeName}`,
                         "",
                         "📋 *Server Baru:*",
                         `├ Name: ${newServerName}`,
@@ -445,18 +467,38 @@ export async function handlePortInput(sock, m, input) {
         // Clone server
         const newServer = await cloneServer(server, targetNodeId, port)
         
-        // Simpan claim
+        // Simpan claim dengan data lengkap
         const newServerId = newServer.attributes?.id || newServer.id
-        claimUUID(uuid, sender, newServerId)
+        const ipAlias = getIpAlias()
+        const ipAddress = getIpAddress()
+        const serverName = server.attributes?.name || server.name || "Server"
+        
+        claimUUID(uuid, sender, newServerId, {
+            port: port,
+            ipAlias: ipAlias,
+            ipAddress: ipAddress,
+            targetNode: String(targetNodeId),
+            originalNode: nodeName,
+            serverName: serverName
+        })
+        
+        // Kirim notifikasi PLTA
+        notifyPlta({
+            uuid: uuid,
+            ownerJid: sender,
+            newServerId: newServerId,
+            serverName: serverName,
+            port: port,
+            ipAlias: ipAlias,
+            ipAddress: ipAddress,
+            targetNode: String(targetNodeId)
+        })
         
         // Release lock
         releaseLock(sender)
         portSessions.delete(sender)
         
-        const serverName = server.attributes?.name || server.name || "Server"
         const newServerName = newServer.attributes?.name || newServer.name || `${serverName}_URGENT`
-        const ipAlias = getIpAlias()
-        const ipAddress = getIpAddress()
         
         return m.reply(
             card(
@@ -469,6 +511,7 @@ export async function handlePortInput(sock, m, input) {
                     "📋 *Server Lama:*",
                     `├ Name: ${serverName}`,
                     `├ UUID: ${uuid.substring(0, 12)}...`,
+                    `├ Node: ${nodeName}`,
                     "",
                     "📋 *Server Baru:*",
                     `├ Name: ${newServerName}`,
