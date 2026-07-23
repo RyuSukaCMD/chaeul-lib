@@ -1,5 +1,4 @@
 import { card } from "../../lib/ui.js"
-import Button from "../../lib/button.js"
 import {
     isUrgentOpen,
     findServerNode,
@@ -8,7 +7,8 @@ import {
     getUrgentConfig,
     getClaimedUUIDs,
     claimUUID,
-    getDefaultNode,
+    getIpAlias,
+    getIpAddress,
     // Port system
     hasActiveLock,
     getLockInfo,
@@ -20,7 +20,6 @@ import {
     isPortAvailable,
     generateAvailablePort
 } from "../../lib/urgent.js"
-import { getConfig } from "../../lib/pterodactyl.js"
 
 // Session storage untuk port request (dalam memory)
 const portSessions = new Map()
@@ -337,6 +336,8 @@ export async function handlePortInput(sock, m, input) {
             
             const serverName = server.attributes?.name || server.name || "Server"
             const newServerName = newServer.attributes?.name || newServer.name || `${serverName}_URGENT`
+            const ipAlias = getIpAlias()
+            const ipAddress = getIpAddress()
             
             return m.reply(
                 card(
@@ -353,12 +354,17 @@ export async function handlePortInput(sock, m, input) {
                         "📋 *Server Baru:*",
                         `├ Name: ${newServerName}`,
                         `├ UUID: ${newServerId}`,
+                        "",
+                        "🌐 *Connection:*",
                         `├ 🔌 Port: ${autoPort}`,
-                        `├ Node: ${targetNodeId}`,
+                        `├ 🌐 Alias: ${ipAlias}`,
+                        `├ 📍 IP: ${ipAddress}`,
                         "",
                         "─────────────────",
                         "",
-                        "✅ Server baru sudah dibuat dan siap digunakan!"
+                        `✅ Connect: \`${ipAlias}:${autoPort}\``,
+                        "",
+                        "Server baru sudah dibuat dan siap digunakan!"
                     ],
                     { emoji: "🎉" }
                 )
@@ -449,6 +455,8 @@ export async function handlePortInput(sock, m, input) {
         
         const serverName = server.attributes?.name || server.name || "Server"
         const newServerName = newServer.attributes?.name || newServer.name || `${serverName}_URGENT`
+        const ipAlias = getIpAlias()
+        const ipAddress = getIpAddress()
         
         return m.reply(
             card(
@@ -465,12 +473,17 @@ export async function handlePortInput(sock, m, input) {
                     "📋 *Server Baru:*",
                     `├ Name: ${newServerName}`,
                     `├ UUID: ${newServerId}`,
+                    "",
+                    "🌐 *Connection:*",
                     `├ 🔌 Port: ${port}`,
-                    `├ Node: ${targetNodeId}`,
+                    `├ 🌐 Alias: ${ipAlias}`,
+                    `├ 📍 IP: ${ipAddress}`,
                     "",
                     "─────────────────",
                     "",
-                    "✅ Server baru sudah dibuat dan siap digunakan!"
+                    `✅ Connect: \`${ipAlias}:${port}\``,
+                    "",
+                    "Server baru sudah dibuat dan siap digunakan!"
                 ],
                 { emoji: "🎉" }
             )

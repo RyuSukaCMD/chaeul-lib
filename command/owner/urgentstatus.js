@@ -1,11 +1,12 @@
 import { card } from "../../lib/ui.js"
-import Button from "../../lib/button.js"
 import {
     getUrgentConfig,
     isUrgentOpen,
     getBlacklistNodes,
     getWhitelistNodes,
-    getClaimedUUIDs
+    getClaimedUUIDs,
+    getIpAlias,
+    getIpAddress
 } from "../../lib/urgent.js"
 import { getNodes } from "../../lib/pterodactyl.js"
 
@@ -24,6 +25,8 @@ export default {
         const blacklist = getBlacklistNodes()
         const whitelist = getWhitelistNodes()
         const claimed = getClaimedUUIDs()
+        const ipAlias = getIpAlias()
+        const ipAddress = getIpAddress()
 
         // Ambil nama node dari list
         let nodes = []
@@ -77,6 +80,11 @@ export default {
 ┃ 📊 *Status:* ${isOpen ? "🟢 DIBUKA" : "🔴 DITUTUP"}
 ┃ 🖥️ *Default Node:* ${config.defaultNode ? getNodeName(config.defaultNode) + ` (${config.defaultNode})` : "_Belum diset_"}
 ┃
+┃ ─── 🌐 IP CONFIG ───
+┃
+┃ 🌐 Alias: ${ipAlias}
+┃ 📍 IP: ${ipAddress}
+┃
 ┃ ─── 🛑 BLACKLIST ───
 ┃
 ${blacklistText}
@@ -98,11 +106,12 @@ ${claimedText}
 ╰───────────────────❏
 
 📝 *Command:*
-├ ${global.prefix}openurgent  - Buka sistem
-├ ${global.prefix}closeurgent - Tutup sistem
-├ ${global.prefix}nodeto      - Set node target
-├ ${global.prefix}blnode      - Blacklist node
-├ ${global.prefix}wlnode      - Whitelist node
+├ ${global.prefix}openurgent      - Buka sistem
+├ ${global.prefix}closeurgent     - Tutup sistem
+├ ${global.prefix}nodeto          - Set node target
+├ ${global.prefix}setipurgent     - Set IP config
+├ ${global.prefix}blnode          - Blacklist node
+├ ${global.prefix}wlnode          - Whitelist node
 `.trim()
 
         return m.reply(text)
