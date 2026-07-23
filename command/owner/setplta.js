@@ -1,84 +1,56 @@
 import { card } from "../../lib/ui.js"
 import {
     getPltaConfig,
-    isPltaEnabled,
-    setPltaWebhook,
-    enablePlta,
-    disablePlta,
+    isPltaConfigured,
+    setPltaConfig,
     clearPlta
 } from "../../lib/urgent.js"
 
 export default {
-    command: ["setplta", "plta"],
+    command: ["setplta"],
 
     owner: true,
 
     category: "Owner",
 
-    description: "Set PLTA webhook untuk notifikasi",
+    description: "Set PLTA untuk create panel/user",
 
     async run({ sock, m, args }) {
         // ─── Tampilkan help / status ───
         if (!args[0] || args[0] === "info" || args[0] === "status") {
             const config = getPltaConfig()
-            const maskedWebhook = config.webhook
-                ? config.webhook.length > 30
-                    ? config.webhook.substring(0, 30) + "..."
-                    : config.webhook
+            const maskedKey = config.key
+                ? config.key.length > 8
+                    ? config.key.substring(0, 8) + "..." + config.key.substring(config.key.length - 4)
+                    : "********"
                 : "_Belum diset_"
+            
+            const urlDisplay = config.url || "_Belum diset_"
 
             return m.reply(
                 card(
                     "PLTA CONFIG",
                     [
-                        `📊 *Status:* ${config.enabled ? "🟢 AKTIF" : "🔴 NONAKTIF"}`,
-                        `🔗 *Webhook:* ${maskedWebhook}`,
+                        `🔗 *URL:* ${urlDisplay}`,
+                        `🔑 *Key:* ${maskedKey}`,
                         "",
                         "─────────────────",
                         "",
                         "📋 *Command:*",
                         "",
-                        `${global.prefix}setplta <webhook>`,
-                        "└─ Set webhook dan aktifkan",
-                        "",
-                        `${global.prefix}setplta enable`,
-                        "└─ Aktifkan PLTA",
-                        "",
-                        `${global.prefix}setplta disable`,
-                        "└─ Nonaktifkan PLTA",
+                        `${global.prefix}setplta <url> <key>`,
+                        "└─ Set PLTA URL dan Key",
                         "",
                         `${global.prefix}setplta clear`,
                         "└─ Hapus PLTA config",
                         "",
                         "─────────────────",
                         "",
-                        "📝 *Catatan:*",
-                        "PLTA adalah sistem notifikasi",
-                        "yang akan mengirim data server",
-                        "yang di-claim ke webhook."
+                        "📝 *Contoh:*",
+                        `${global.prefix}setplta https://plta.example.com plta_secret_key_xxx`
                     ],
-                    { emoji: "⚡" }
+                    { emoji: "🔑" }
                 )
-            )
-        }
-
-        // ─── Enable PLTA ───
-        if (args[0] === "enable" || args[0] === "on") {
-            try {
-                enablePlta()
-                return m.reply(
-                    card("✅ PLTA", ["🟢 PLTA berhasil diaktifkan."], { emoji: "⚡" })
-                )
-            } catch (error) {
-                return m.reply(card("ERROR", [`❌ ${error.message}`], { emoji: "❌" }))
-            }
-        }
-
-        // ─── Disable PLTA ───
-        if (args[0] === "disable" || args[0] === "off") {
-            disablePlta()
-            return m.reply(
-                card("✅ PLTA", ["🔴 PLTA berhasil dinonaktifkan."], { emoji: "⚡" })
             )
         }
 
@@ -90,52 +62,46 @@ export default {
             )
         }
 
-        // ─── Set webhook ───
-        const webhook = args.join(" ").trim()
-
-        if (!webhook) {
+        // ─── Set PLTA URL dan Key ───
+        if (args.length < 2) {
             return m.reply(
                 card("ERROR", [
-                    "❌ Sertakan webhook URL.",
+                    "❌ Format salah.",
                     "",
-                    `${global.prefix}setplta https://your-webhook.com/notify`,
+                    "Penggunaan:",
+                    `${global.prefix}setplta <url> <key>`,
                     "",
-                    "Webhook akan menerima POST request",
-                    "saat ada server yang di-claim."
+                    "Contoh:",
+                    `${global.prefix}setplta https://plta.example.com plta_secret_key_xxx`
                 ], { emoji: "❌" })
             )
         }
 
-        // Validasi format URL
-        try {
-            new URL(webhook)
-        } catch {
-            return m.reply(
-                card("ERROR", [
-                    "❌ Format webhook tidak valid.",
-                    "",
-                    "Harus berupa URL lengkap:",
-                    "https://your-domain.com/webhook"
-                ], { emoji: "❌" })
-            )
-        }
+        const [url, ...keyParts] = args
+        const key = keyParts.join(" ")
 
         try {
-            const result = setPltaWebhook(webhook)
+            const result = setPltaConfig(url, key)
+            
+            const maskedKey = result.key.length > 8
+                ? result.key.substring(0, 8) + "..."
+                : "********"
+            
             return m.reply(
                 card(
                     "✅ PLTA SET",
                     [
-                        "⚡ PLTA webhook berhasil diset!",
+                        "🔑 PLTA berhasil dikonfigurasi!",
                         "",
-                        `🔗 Webhook: ${webhook.substring(0, 50)}${webhook.length > 50 ? "..." : ""}`,
+                        `🔗 URL: ${result.url}`,
+                        `🔑 Key: ${maskedKey}`,
                         "",
-                        "Status: 🟢 AKTIF",
+                        "─────────────────",
                         "",
-                        "Notifikasi akan dikirim saat",
-                        "ada server yang di-claim."
+                        "PLTA sekarang bisa digunakan",
+                        "untuk membuat user/panel."
                     ],
-                    { emoji: "⚡" }
+                    { emoji: "🔑" }
                 )
             )
         } catch (error) {
