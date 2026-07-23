@@ -64,7 +64,7 @@ export default {
             await m.react("🏝️")
             return m.reply(
                 card(
-                    "ISLAND"
+                    "ISLAND",
                     [
                         `✅ Sekarang kamu di:`,
                         `${info.emoji} *${info.name}*`,
