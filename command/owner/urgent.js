@@ -6,6 +6,7 @@ import {
     isNodeBlacklisted,
     isNodeAllowed,
     getUrgentConfig,
+    getUrgentMode,
     getClaimedUUIDs,
     claimUUID,
     getIpAlias,
@@ -24,7 +25,9 @@ import {
     setUrgentSession,
     findUrgentSession,
     deleteUrgentSession,
-    hasUrgentSession
+    hasUrgentSession,
+    isPltcConfigured,
+    getServerResources
 } from "../../lib/urgent.js"
 
 // ─── Helpers ───
@@ -240,8 +243,10 @@ export default {
         const { node, server } = result
         const nodeId = String(node.id)
         const nodeName = node.name
+        const mode = getUrgentMode()
 
-        if (isNodeBlacklisted(nodeId)) {
+        // Mode blacklist: laporkan node yang di-blacklist secara spesifik
+        if (mode === "blacklist" && isNodeBlacklisted(nodeId)) {
             return m.reply(card("NODE BLACKLISTED", [
                 `⚠️ Server ini berada di node *${nodeName}* (ID: ${nodeId})`,
                 "",
@@ -254,13 +259,28 @@ export default {
         }
 
         if (!isNodeAllowed(nodeId)) {
-            return m.reply(card("NODE NOT ALLOWED", [
-                `⚠️ Node *${nodeName}* (ID: ${nodeId})`,
-                "",
-                "Tidak diizinkan untuk emergency clone.",
-                "",
-                "_Hubungi owner._"
-            ], { emoji: "⚠️" }))
+            const lines =
+                mode === "whitelist"
+                    ? [
+                          `⚠️ Server ini berada di node *${nodeName}* (ID: ${nodeId})`,
+                          "",
+                          "🚫 Node tersebut *tidak ada di whitelist* urgent.",
+                          "Hanya server dari node whitelist yang bisa di-claim.",
+                          "",
+                          "_Hubungi owner untuk info lebih lanjut._"
+                      ]
+                    : [
+                          `⚠️ Node *${nodeName}* (ID: ${nodeId})`,
+                          "",
+                          "Tidak diizinkan untuk emergency clone.",
+                          "",
+                          "_Hubungi owner._"
+                      ]
+            return m.reply(card(
+                mode === "whitelist" ? "NODE NOT WHITELISTED" : "NODE NOT ALLOWED",
+                lines,
+                { emoji: "🚫" }
+            ))
         }
 
         const config = getUrgentConfig()
@@ -276,6 +296,24 @@ export default {
 
         const serverName = server.attributes?.name || server.name || "Server"
         const limits = server.limits || server.attributes?.limits || {}
+
+        // ─── Live stats via PLTC (Client API) bila tersedia ───
+        const liveLines = []
+        if (isPltcConfigured()) {
+            try {
+                const identifier =
+                    server.identifier ||
+                    server.attributes?.identifier ||
+                    String(uuid).slice(0, 8)
+                const stats = await getServerResources(identifier)
+                const state = stats?.current_state || "unknown"
+                const dot = state === "running" ? "🟢" : state === "offline" ? "🔴" : "🟡"
+                const ramMB = Math.round((stats?.resources?.memory_bytes || 0) / 1048576)
+                liveLines.push(`├ Live: ${dot} ${state} • RAM ${ramMB} MB`)
+            } catch {
+                liveLines.push(`├ Live: ⚪ _(PLTC tidak bisa membaca server ini)_`)
+            }
+        }
 
         // ─── Simpan sesi tahap KONFIRMASI + tampilkan tombol konfirmasi (locked) ───
         setUrgentSession(m.sender, {
@@ -302,6 +340,7 @@ export default {
                 `├ Node asal: ${nodeName} (ID: ${nodeId})`,
                 `├ Node target: #${targetNodeId}`,
                 `├ Spec: 🧠 ${limits.memory ?? 0} MB • 💿 ${limits.disk ?? 0} MB • ⚙️ ${limits.cpu ?? 0}%`,
+                ...liveLines,
                 "",
                 "─────────────────",
                 "",

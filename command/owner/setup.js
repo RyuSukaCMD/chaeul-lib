@@ -1,6 +1,6 @@
 import { card } from "../../lib/ui.js"
 import { setConfig as setPteroConfig, isConfigured as isPteroConfigured, getConfig as getPteroConfig } from "../../lib/pterodactyl.js"
-import { setPltaConfig, getPltaConfig, isPltaConfigured } from "../../lib/urgent.js"
+import { setPltaConfig, getPltaConfig, isPltaConfigured, setPltcConfig, getPltcConfig, isPltcConfigured } from "../../lib/urgent.js"
 
 export default {
     command: ["setup"],
@@ -13,46 +13,43 @@ export default {
         if (!args[0] || args[0] === "info" || args[0] === "status") {
             const pteroConfig = getPteroConfig()
             const pltaConfig = getPltaConfig()
+            const pltcConfig = getPltcConfig()
 
-            const pteroUrl = pteroConfig.url || "_Belum diset_"
-            const pteroKeyMask = pteroConfig.key 
-                ? (pteroConfig.key.length > 8 
-                    ? pteroConfig.key.substring(0, 8) + "..." 
-                    : "********") 
-                : "_Belum diset_"
-
-            const pltaUrl = pltaConfig.url || "_Belum diset_"
-            const pltaKeyMask = pltaConfig.key 
-                ? (pltaConfig.key.length > 8 
-                    ? pltaConfig.key.substring(0, 8) + "..." 
-                    : "********") 
-                : "_Belum diset_"
+            const mask = (key) =>
+                key
+                    ? key.length > 8
+                        ? key.substring(0, 8) + "..."
+                        : "********"
+                    : "_Belum diset_"
 
             return m.reply(card("SETUP STATUS", [
                 "⚙️ *Konfigurasi Saat Ini:*",
                 "",
                 "📦 *Pterodactyl (Panel Utama):*",
-                "├ URL: " + pteroUrl,
-                "├ Key: " + pteroKeyMask,
+                "├ URL: " + (pteroConfig.url || "_Belum diset_"),
+                "├ Key: " + mask(pteroConfig.key),
                 "├ Status: " + (isPteroConfigured() ? "✅ Terkonfigurasi" : "❌ Belum"),
                 "",
-                "🔑 *PLTA (Create Panel):*",
-                "├ URL: " + pltaUrl,
-                "├ Key: " + pltaKeyMask,
+                "🔑 *PLTA (Application Key):*",
+                "├ URL: " + (pltaConfig.url || "_Belum diset_"),
+                "├ Key: " + mask(pltaConfig.key),
                 "├ Status: " + (isPltaConfigured() ? "✅ Terkonfigurasi" : "❌ Belum"),
+                "",
+                "🗝️ *PLTC (Client Key):*",
+                "├ URL: " + (pltcConfig.url || "_Belum diset_"),
+                "├ Key: " + mask(pltcConfig.key),
+                "├ Status: " + (isPltcConfigured() ? "✅ Terkonfigurasi" : "❌ Belum"),
                 "",
                 "─────────────────",
                 "",
                 "📋 *Command:*",
                 "",
-                global.prefix + "setup <ptero_url> <ptero_key> <plta_url> <plta_key>",
-                "",
-                " Atau pisah:",
                 global.prefix + "setup ptero <url> <key>",
                 global.prefix + "setup plta <url> <key>",
+                global.prefix + "setup pltc <url> <key>",
                 "",
-                " Contoh lengkap:",
-                global.prefix + "setup https://panel.com key123 https://plta.com plta456"
+                " Atau via command khusus:",
+                global.prefix + "setpterodactyl / setplta / setpltc"
             ], { emoji: "⚙️" }))
         }
 
@@ -114,6 +111,34 @@ export default {
             }
         }
 
+        // ─── Setup PLTC saja ───
+        if (args[0] === "pltc") {
+            if (args.length < 3) {
+                return m.reply(card("ERROR", [
+                    "❌ Format salah.",
+                    "",
+                    global.prefix + "setup pltc <url> <key>",
+                    "",
+                    "Contoh:",
+                    global.prefix + "setup pltc https://panel.com ptlc_client_key"
+                ], { emoji: "❌" }))
+            }
+
+            const key = args.slice(2).join(" ")
+
+            try {
+                setPltcConfig(args[1], key)
+                return m.reply(card("✅ PLTC SET", [
+                    "🗝️ PLTC berhasil dikonfigurasi!",
+                    "",
+                    "URL: " + args[1],
+                    "Status: ✅ Siap digunakan"
+                ], { emoji: "🗝️" }))
+            } catch (error) {
+                return m.reply(card("ERROR", ["❌ " + error.message], { emoji: "❌" }))
+            }
+        }
+
         // ─── Setup keduanya sekaligus ───
         if (args.length >= 4) {
             const [pteroUrl, pteroKey, pltaUrl, pltaKey, ...extra] = args
@@ -170,12 +195,13 @@ export default {
         return m.reply(card("SETUP", [
             "⚙️ *Cara Setup:*",
             "",
-            "Semua sekaligus:",
+            "Semua sekaligus (ptero + plta):",
             global.prefix + "setup <ptero_url> <ptero_key> <plta_url> <plta_key>",
             "",
             "Terpisah:",
             global.prefix + "setup ptero <url> <key>",
             global.prefix + "setup plta <url> <key>",
+            global.prefix + "setup pltc <url> <key>",
             "",
             "Cek status:",
             global.prefix + "setup"

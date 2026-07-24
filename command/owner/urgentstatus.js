@@ -2,6 +2,7 @@ import { card } from "../../lib/ui.js"
 import {
     getUrgentConfig,
     isUrgentOpen,
+    getUrgentMode,
     getBlacklistNodes,
     getWhitelistNodes,
     getClaimedUUIDs,
@@ -22,6 +23,7 @@ export default {
     async run({ sock, m }) {
         const config = getUrgentConfig()
         const isOpen = isUrgentOpen()
+        const mode = getUrgentMode()
         const blacklist = getBlacklistNodes()
         const whitelist = getWhitelistNodes()
         const claimed = getClaimedUUIDs()
@@ -77,6 +79,7 @@ export default {
 ╭─❏ 🚨 *URGENT STATUS*
 ┃
 ┃ 📊 *Status:* ${isOpen ? "🟢 DIBUKA" : "🔴 DITUTUP"}
+┃ 🎛️ *Mode:* ${mode === "whitelist" ? "⚪ WHITELIST (hanya WL)" : "⚫ BLACKLIST (semua kecuali BL)"}
 ┃ 🖥️ *Default Node:* ${config.defaultNode ? getNodeName(config.defaultNode) + ` (${config.defaultNode})` : "_Belum diset_"}
 ┃
 ┃ ─── 🌐 IP CONFIG ───

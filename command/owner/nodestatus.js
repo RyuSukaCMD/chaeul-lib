@@ -10,38 +10,9 @@ import {
     formatBytes,
     formatMemoryBar,
     formatDiskBar,
-    calcNodeUsage
+    calcNodeUsage,
+    pingDaemon
 } from "../../lib/pterodactyl.js"
-import net from "net"
-
-// ─── Ping Node (TCP connect test ke daemon/wings) ───
-async function pingNode(fqdn, port = 8080, timeout = 8000) {
-    return new Promise((resolve) => {
-        const socket = new net.Socket()
-        let responded = false
-
-        const done = (result) => {
-            if (!responded) {
-                responded = true
-                clearTimeout(timer)
-                socket.destroy()
-                resolve(result)
-            }
-        }
-
-        const timer = setTimeout(() => done(false), timeout)
-        socket.setTimeout(timeout)
-        socket.on("connect", () => done(true))
-        socket.on("error", () => done(false))
-        socket.on("timeout", () => done(false))
-
-        try {
-            socket.connect(port, fqdn)
-        } catch {
-            done(false)
-        }
-    })
-}
 
 // ─── Helper data (response sudah di-unwrap oleh lib/pterodactyl.js) ───
 function toArr(result) {
@@ -399,7 +370,7 @@ async function viewSingleNode(sock, m, node) {
         const daemonPort = Number(field(node, "daemon_listen", 8080)) || 8080
 
         if (fqdn) {
-            const isOnline = await pingNode(fqdn, daemonPort, 7000)
+            const isOnline = await pingDaemon(fqdn, daemonPort, 7000)
             nodeStatus = isOnline ? "🟢 *ONLINE*" : "🔴 *OFFLINE*"
         } else {
             nodeStatus = "⚠️ *No FQDN*"
