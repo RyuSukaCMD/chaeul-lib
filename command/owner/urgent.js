@@ -40,9 +40,10 @@ async function sendCloneSuccess(sock, m, { uuid, serverName, nodeName, newServer
     const ipAddress = getIpAddress()
     const connectString = `${ipAlias}:${port}`
     const panelUrl = getPanelUrl()
-
+    const mygw = `https://dash.nexhostku.com`
+    
     const buttons = [{ type: "copy", text: "📋 Copy Address", code: connectString }]
-    if (panelUrl) buttons.push({ type: "url", text: "🌐 Buka Panel", url: panelUrl })
+    if (panelUrl) buttons.push({ type: "url", text: "🌐 Buka Panel", url: mygw })
 
     return Button.menu({
         sock,
