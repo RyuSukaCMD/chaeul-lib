@@ -308,6 +308,13 @@ export default {
                 "⚠️ Server akan di-*CLONE identik* ke node target.",
                 "Pastikan ini benar server kamu.",
                 "",
+                "─────────────────",
+                "",
+                "*Cara konfirmasi:*",
+                "• Tekan tombol *✅ Ya, Clone Server*, ATAU",
+                "• Balas *ya* untuk lanjut, *batal* untuk batal,",
+                "• Atau langsung ketik nomor port (mis. 25565).",
+                "",
                 "_Sesi berakhir otomatis dalam 5 menit._"
             ], { emoji: "🛡️" }),
             footer: "© Chaeul",
@@ -323,13 +330,14 @@ export default {
 // ═══════════════════════════════════════════════════════════════
 // BUTTON: Konfirmasi server → lanjut pilih port
 // ═══════════════════════════════════════════════════════════════
-async function handleConfirm(sock, m) {
-    // Hanya pemilik sesi (command runner) yang bisa konfirmasi.
-    const session = findUrgentSession(m.sender)
-    if (!session || session.step !== "confirm") return null
 
-    // Buat lock port & ambil daftar port yang SAH (allocation kosong)
-    createLock(m.sender, session.uuid)
+// Lanjut ke tahap pilih port (dipakai button confirm & konfirmasi via teks).
+// Mengembalikan true bila berhasil, false bila tidak ada port tersedia.
+async function advanceToPortStage(sock, m, session) {
+    // Lock hanya dibuat sekali (bila belum ada)
+    if (!hasActiveLock(m.sender)) {
+        createLock(m.sender, session.uuid)
+    }
 
     const availablePorts = await getAvailablePortList(session.targetNodeId, 10)
     const autoPort = await generateAvailablePort(session.targetNodeId)
@@ -337,35 +345,43 @@ async function handleConfirm(sock, m) {
     if (!availablePorts.length || !autoPort) {
         releaseLock(m.sender)
         deleteUrgentSession(m.sender)
-        return m.reply(card("ERROR", [
+        await m.reply(card("ERROR", [
             "❌ Tidak ada port tersedia di node target.",
             "",
             "_Semua allocation sudah dipakai. Hubungi owner._"
         ], { emoji: "❌" }))
+        return false
     }
 
     setUrgentSession(m.sender, { ...session, step: "port", availablePorts })
 
     const serverName = session.server.attributes?.name || session.server.name || "Server"
 
-    // Port sebagai pilihan list (rapi) + tombol auto & batal
+    // Port sebagai pilihan list (rapi) + tombol auto & batal.
+    // Nomor port JUGA ditulis sebagai teks — jadi tetap bisa dipakai
+    // walau tombol interactive tidak tampil di WhatsApp user.
     const rows = availablePorts.map((port) => ({
         title: `🔌 ${port}`,
         description: "Klik untuk memakai port ini",
         id: `urgent_port:${port}`
     }))
 
-    return Button.menu({
+    await Button.menu({
         sock,
         m,
         body: card("PILIH PORT", [
             `📋 Server: *${serverName}*`,
             `🎯 Node target: #${session.targetNodeId}`,
             "",
-            `🔌 Port tersedia: *${availablePorts.length}*`,
+            "🔌 *Port tersedia:*",
+            ...availablePorts.slice(0, 10).map((p) => `├ \`${p}\``),
             "",
-            "Pilih port dari daftar, klik *Port Acak*,",
-            "atau ketik nomor port secara manual.",
+            "─────────────────",
+            "",
+            "*Cara memilih:*",
+            "• Klik port pada daftar / tombol di bawah, ATAU",
+            "• Ketik nomor port manual (mis. 25565), ATAU",
+            `• Ketik *auto* untuk port acak (${autoPort})`,
             "",
             "_Ketik batal untuk membatalkan._"
         ], { emoji: "🔌" }),
@@ -377,6 +393,16 @@ async function handleConfirm(sock, m) {
         ],
         sections: rows.length ? [{ title: "✦ PORT TERSEDIA", rows }] : []
     })
+    return true
+}
+
+async function handleConfirm(sock, m) {
+    // Hanya pemilik sesi (command runner) yang bisa konfirmasi.
+    const session = findUrgentSession(m.sender)
+    if (!session || session.step !== "confirm") return null
+
+    const ok = await advanceToPortStage(sock, m, session)
+    return ok ? true : null
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -472,7 +498,7 @@ export async function handlePortInput(sock, m, input) {
     // Klik button di-route lewat run(), bukan di sini
     if (text.startsWith("urgent_")) return null
 
-    if (text === "batal" || text === "cancel") {
+    if (text === "batal" || text === "cancel" || text === "tidak" || text === "gak" || text === "ga" || text === "no") {
         releaseLock(m.sender)
         deleteUrgentSession(m.sender)
         return m.reply(card("DIBATALKAN", [
@@ -482,17 +508,45 @@ export async function handlePortInput(sock, m, input) {
         ], { emoji: "❌" }))
     }
 
-    // Masih tahap konfirmasi — user harus menekan tombol dulu
+    // ─── Tahap KONFIRMASI (semua bisa via teks, tanpa butuh tombol) ───
     if (session.step === "confirm") {
-        return m.reply(card("KONFIRMASI DULU", [
-            "⚠️ Tekan tombol *✅ Ya, Clone Server* dulu",
-            "pada pesan konfirmasi di atas.",
-            "",
-            "_Atau ketik *batal* untuk membatalkan._"
-        ], { emoji: "🛡️" }))
+        // Konfirmasi via teks: "ya", "yes", "ok", "lanjut", dst.
+        const YES = ["ya", "yes", "y", "ok", "oke", "okay", "iya", "lanjut", "gas", "setuju", "confirm", "yakin", "benar"]
+        if (YES.includes(text)) {
+            console.log(`[Urgent] Konfirmasi via teks dari ${m.sender}`)
+            return await advanceToPortStage(sock, m, session)
+        }
+
+        // Langsung ketik PORT di tahap konfirmasi = otomatis konfirmasi
+        // lalu proses port tersebut (fix: user tidak tersangkut menunggu
+        // tombol yang mungkin tidak tampil di WhatsApp-nya).
+        if (text === "auto" || text === "acak" || text === "random") {
+            console.log(`[Urgent] Konfirmasi+auto port via teks dari ${m.sender}`)
+            createLock(m.sender, session.uuid)
+            setUrgentSession(m.sender, { ...session, step: "port", availablePorts: [] })
+            const port = await generateAvailablePort(session.targetNodeId)
+            if (!port) {
+                releaseLock(m.sender)
+                deleteUrgentSession(m.sender)
+                return m.reply(card("ERROR", ["❌ Tidak ada port tersedia."], { emoji: "❌" }))
+            }
+            return await doClone(sock, m, findUrgentSession(m.sender) || session, port)
+        }
+
+        const port = parseInt(text)
+        if (!isNaN(port)) {
+            console.log(`[Urgent] Konfirmasi+port ${port} via teks dari ${m.sender}`)
+            createLock(m.sender, session.uuid)
+            const moved = { ...session, step: "port", availablePorts: [] }
+            setUrgentSession(m.sender, moved)
+            return await validateAndClone(sock, m, moved, port)
+        }
+
+        // Chat lain di tahap konfirmasi → abaikan (jangan spam reminder)
+        return null
     }
 
-    // Tahap pilih port
+    // ─── Tahap PILIH PORT ───
     if (text === "auto" || text === "acak" || text === "random") {
         const port = await generateAvailablePort(session.targetNodeId)
         if (!port) {
