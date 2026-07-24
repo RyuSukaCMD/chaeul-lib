@@ -19,8 +19,8 @@ import {
     releaseLock,
     isPortLocked,
     getAvailablePortList,
-    isPortAvailable,
-    generateAvailablePort,
+    getPortState,
+    pickAutoPort,
     cloneServer,
     setUrgentSession,
     findUrgentSession,
@@ -379,15 +379,17 @@ async function advanceToPortStage(sock, m, session) {
     }
 
     const availablePorts = await getAvailablePortList(session.targetNodeId, 10)
-    const autoPort = await generateAvailablePort(session.targetNodeId)
+    // Port auto: dari allocation kosong; kalau habis → port baru yang
+    // allocation-nya akan DIBUAT otomatis saat clone berjalan.
+    const autoPort = await pickAutoPort(session.targetNodeId)
 
-    if (!availablePorts.length || !autoPort) {
+    if (!autoPort) {
         releaseLock(m.sender)
         deleteUrgentSession(m.sender)
         await m.reply(card("ERROR", [
-            "❌ Tidak ada port tersedia di node target.",
+            "❌ Tidak ada port yang bisa dipakai di node target.",
             "",
-            "_Semua allocation sudah dipakai. Hubungi owner._"
+            "_Semua port habis. Hubungi owner._"
         ], { emoji: "❌" }))
         return false
     }
@@ -412,8 +414,9 @@ async function advanceToPortStage(sock, m, session) {
             `📋 Server: *${serverName}*`,
             `🎯 Node target: #${session.targetNodeId}`,
             "",
-            "🔌 *Port tersedia:*",
-            ...availablePorts.slice(0, 10).map((p) => `├ \`${p}\``),
+            ...(availablePorts.length
+                ? ["🔌 *Port tersedia:*", ...availablePorts.slice(0, 10).map((p) => `├ \`${p}\``)]
+                : ["🔌 *Port tersedia:*", "├ _(allocation kosong habis)_", "├ _Port yang kamu pilih akan dibuatkan otomatis._"]),
             "",
             "─────────────────",
             "",
@@ -421,6 +424,9 @@ async function advanceToPortStage(sock, m, session) {
             "• Klik port pada daftar / tombol di bawah, ATAU",
             "• Ketik nomor port manual (mis. 25565), ATAU",
             `• Ketik *auto* untuk port acak (${autoPort})`,
+            "",
+            "ℹ️ Port yang belum ada allocation-nya akan",
+            "*dibuat dulu otomatis* sebelum server dibuat.",
             "",
             "_Ketik batal untuk membatalkan._"
         ], { emoji: "🔌" }),
@@ -471,11 +477,11 @@ async function handlePortButton(sock, m, raw) {
     const value = String(raw).trim().toLowerCase()
 
     if (value === "auto" || value === "acak" || value === "random") {
-        const port = await generateAvailablePort(session.targetNodeId)
+        const port = await pickAutoPort(session.targetNodeId)
         if (!port) {
             releaseLock(m.sender)
             deleteUrgentSession(m.sender)
-            return m.reply(card("ERROR", ["❌ Tidak ada port tersedia."], { emoji: "❌" }))
+            return m.reply(card("ERROR", ["❌ Tidak ada port yang bisa dipakai."], { emoji: "❌" }))
         }
         return await doClone(sock, m, session, port)
     }
@@ -506,17 +512,25 @@ async function validateAndClone(sock, m, session, port) {
         ], { emoji: "🔌" }))
     }
 
-    const available = await isPortAvailable(session.targetNodeId, port)
-    if (!available) {
+    // Status port di node:
+    //  • assigned  → allocation ada tapi sudah dipakai server lain → TOLAK
+    //  • free      → allocation kosong → langsung dipakai
+    //  • creatable → belum ada → allocation DIBUAT dulu otomatis saat clone
+    const portState = await getPortState(session.targetNodeId, port)
+    if (portState.state === "assigned") {
         const fresh = await getAvailablePortList(session.targetNodeId, 5)
         return m.reply(card("PORT TAKEN", [
-            `❌ Port *${port}* sudah digunakan atau tidak tersedia.`,
+            `❌ Port *${port}* sudah dipakai server lain.`,
             "",
-            "Port yang tersedia:",
-            ...(fresh.length ? fresh.map((p) => `├ 🔌 \`${p}\``) : ["├ _(kosong — hubungi owner)_"]),
+            "Port kosong yang tersedia:",
+            ...(fresh.length ? fresh.map((p) => `├ 🔌 \`${p}\``) : ["├ _(kosong — ketik port lain, allocation akan dibuat otomatis)_"]),
             "",
             "Pilih port lain, atau ketik *batal*."
         ], { emoji: "🔌" }))
+    }
+
+    if (portState.state === "creatable") {
+        console.log(`[Urgent] Port ${port} belum ada allocation → akan dibuat otomatis saat clone.`)
     }
 
     return await doClone(sock, m, session, port)
@@ -563,11 +577,11 @@ export async function handlePortInput(sock, m, input) {
             console.log(`[Urgent] Konfirmasi+auto port via teks dari ${m.sender}`)
             createLock(m.sender, session.uuid)
             setUrgentSession(m.sender, { ...session, step: "port", availablePorts: [] })
-            const port = await generateAvailablePort(session.targetNodeId)
+            const port = await pickAutoPort(session.targetNodeId)
             if (!port) {
                 releaseLock(m.sender)
                 deleteUrgentSession(m.sender)
-                return m.reply(card("ERROR", ["❌ Tidak ada port tersedia."], { emoji: "❌" }))
+                return m.reply(card("ERROR", ["❌ Tidak ada port yang bisa dipakai."], { emoji: "❌" }))
             }
             return await doClone(sock, m, findUrgentSession(m.sender) || session, port)
         }
@@ -587,11 +601,11 @@ export async function handlePortInput(sock, m, input) {
 
     // ─── Tahap PILIH PORT ───
     if (text === "auto" || text === "acak" || text === "random") {
-        const port = await generateAvailablePort(session.targetNodeId)
+        const port = await pickAutoPort(session.targetNodeId)
         if (!port) {
             releaseLock(m.sender)
             deleteUrgentSession(m.sender)
-            return m.reply(card("ERROR", ["❌ Tidak ada port tersedia."], { emoji: "❌" }))
+            return m.reply(card("ERROR", ["❌ Tidak ada port yang bisa dipakai."], { emoji: "❌" }))
         }
         return await doClone(sock, m, session, port)
     }
