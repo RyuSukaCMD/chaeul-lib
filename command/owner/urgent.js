@@ -19,10 +19,17 @@ import {
     isPortLocked,
     getAvailablePortList,
     isPortAvailable,
-    generateAvailablePort
+    generateAvailablePort,
+    cloneServer,
+    setUrgentSession,
+    findUrgentSession,
+    deleteUrgentSession,
+    hasUrgentSession
 } from "../../lib/urgent.js"
 
-const portSessions = new Map()
+// ─── Helpers ───
+const LOCK_RX = /​#lock=\d+$/
+const cleanBody = (m) => String(m.body || "").replace(LOCK_RX, "").trim()
 
 // ─── Pesan sukses clone: kartu + tombol copy address & buka panel ───
 async function sendCloneSuccess(sock, m, { uuid, serverName, nodeName, newServerName, newServerId, port }) {
@@ -63,16 +70,76 @@ async function sendCloneSuccess(sock, m, { uuid, serverName, nodeName, newServer
             "Server baru sudah dibuat dan siap digunakan!"
         ], { emoji: "🎉" }),
         footer: "© Chaeul",
+        lock: m.sender,
         buttons
     })
 }
 
+// ─── Eksekusi clone dari sesi yang valid ───
+async function doClone(sock, m, session, port) {
+    const { uuid, server, nodeName, targetNodeId } = session
+
+    updateLockPort(m.sender, port)
+
+    try {
+        const newServer = await cloneServer(server, targetNodeId, port)
+        const newServerId = newServer.attributes?.id || newServer.id
+        const serverName = server.attributes?.name || server.name || "Server"
+
+        const ipAlias = getIpAlias()
+        const ipAddress = getIpAddress()
+
+        claimUUID(uuid, m.sender, newServerId, {
+            port,
+            ipAlias,
+            ipAddress,
+            targetNode: String(targetNodeId),
+            originalNode: nodeName,
+            serverName
+        })
+
+        releaseLock(m.sender)
+        deleteUrgentSession(m.sender)
+
+        const newServerName = newServer.attributes?.name || newServer.name || serverName + "_URGENT"
+
+        return await sendCloneSuccess(sock, m, {
+            uuid,
+            serverName,
+            nodeName,
+            newServerName,
+            newServerId,
+            port
+        })
+    } catch (error) {
+        releaseLock(m.sender)
+        deleteUrgentSession(m.sender)
+        console.error("[Urgent Clone Error]", error)
+        return m.reply(card("ERROR", [`❌ Gagal: ${error.message}`], { emoji: "❌" }))
+    }
+}
+
 export default {
-    command: ["urgent"],
+    command: [
+        "urgent",
+        /^urgent_confirm$/,
+        /^urgent_cancel$/,
+        /^urgent_port:.+$/
+    ],
     category: "User",
     description: "Claim server darurat (Emergency)",
 
     async run({ sock, m, args }) {
+        // ─── Router klik button (lock suffix sudah di-strip handler) ───
+        const action = cleanBody(m)
+
+        if (action === "urgent_confirm") return await handleConfirm(sock, m)
+        if (action === "urgent_cancel") return await handleCancel(sock, m)
+        if (action.startsWith("urgent_port:")) {
+            return await handlePortButton(sock, m, action.slice("urgent_port:".length))
+        }
+
+        // ─── Sistem ditutup ───
         if (!isUrgentOpen()) {
             return m.reply(card("URGENT SYSTEM", [
                 "🔴 Sistem urgent sedang *DITUTUP*.",
@@ -83,20 +150,29 @@ export default {
             ], { emoji: "🔴" }))
         }
 
+        // ─── Request aktif (masih dalam sesi) ───
         if (hasActiveLock(m.sender)) {
-            const lock = getLockInfo(m.sender)
-            return m.reply(card("PORT REQUEST AKTIF", [
-                "⚠️ Kamu masih punya request yang belum selesai.",
-                "",
-                `📋 UUID: ${lock.uuid?.substring(0, 12)}...`,
-                lock.port ? `🔌 Port: ${lock.port}` : "",
-                "",
-                `Sisa waktu: ${Math.ceil((lock.expiresAt - Date.now()) / 60000)} menit`,
-                "",
-                "Ketik nomor port yang kamu inginkan:",
-                "",
-                "_Contoh: 25565_"
-            ], { emoji: "⏳" }))
+            const pending = findUrgentSession(m.sender)
+            if (pending && pending.step === "port") {
+                const lock = getLockInfo(m.sender)
+                return m.reply(card("PORT REQUEST AKTIF", [
+                    "⚠️ Kamu masih punya request yang belum selesai.",
+                    "",
+                    `📋 UUID: ${lock?.uuid?.substring(0, 12) || pending.uuid?.substring(0, 12)}...`,
+                    lock?.port ? `🔌 Port: ${lock.port}` : "",
+                    "",
+                    `Sisa waktu: ${Math.max(1, Math.ceil(((lock?.expiresAt || Date.now()) - Date.now()) / 60000))} menit`,
+                    "",
+                    "Ketik nomor port yang kamu inginkan,",
+                    "atau ketik *batal* untuk membatalkan.",
+                    "",
+                    "_Contoh: 25565_"
+                ], { emoji: "⏳" }))
+            }
+
+            // Lock yatim (sesi hilang, mis. bot restart / konfirmasi belum selesai) → lepas
+            releaseLock(m.sender)
+            deleteUrgentSession(m.sender)
         }
 
         if (!args[0]) {
@@ -113,8 +189,8 @@ export default {
                 "⚠️ *Perhatian:*",
                 "• Server harus dari node yang *TIDAK* diblacklist",
                 "• Satu UUID hanya bisa di-claim *sekali*",
-                "• Kamu akan mendapat server *identik* dengan server asli",
-                "• Port akan dipilih setelah UUID diverifikasi"
+                "• Kamu akan diminta *konfirmasi* dulu, lalu pilih port",
+                "• Kamu akan mendapat server *identik* dengan server asli"
             ], { emoji: "🚨" }))
         }
 
@@ -137,110 +213,11 @@ export default {
 
         await m.reply("🔍 Mencari server...")
 
+        let result
         try {
-            const result = await findServerNode(uuid)
-
-            if (!result) {
-                return m.reply(card("SERVER NOT FOUND", [
-                    `❌ Server dengan UUID *${uuid}* tidak ditemukan.`,
-                    "",
-                    "Pastikan UUID yang kamu masukkan benar.",
-                    "",
-                    "_Tip: UUID ada di detail server di panel._"
-                ], { emoji: "🔍" }))
-            }
-
-            const { node, server } = result
-            const nodeId = String(node.id)
-            const nodeName = node.name
-
-            if (isNodeBlacklisted(nodeId)) {
-                return m.reply(card("NODE BLACKLISTED", [
-                    `⚠️ Server ini berada di node *${nodeName}* (ID: ${nodeId})`,
-                    "",
-                    "🛑 Node tersebut sedang *DITUTUP/DIMATIKAN*.",
-                    "",
-                    "Kamu tidak bisa claim server dari node ini.",
-                    "",
-                    "_Hubungi owner untuk info lebih lanjut._"
-                ], { emoji: "🛑" }))
-            }
-
-            if (!isNodeAllowed(nodeId)) {
-                return m.reply(card("NODE NOT ALLOWED", [
-                    `⚠️ Node *${nodeName}* (ID: ${nodeId})`,
-                    "",
-                    "Tidak diizinkan untuk emergency clone.",
-                    "",
-                    "_Hubungi owner._"
-                ], { emoji: "⚠️" }))
-            }
-
-            const config = getUrgentConfig()
-            const targetNodeId = config.defaultNode
-
-            if (!targetNodeId) {
-                return m.reply(card("CONFIG ERROR", [
-                    "⚠️ Default node untuk urgent belum diset.",
-                    "",
-                    "_Owner perlu set dengan .nodeto_"
-                ], { emoji: "⚠️" }))
-            }
-
-            createLock(m.sender, uuid)
-
-            const availablePorts = await getAvailablePortList(targetNodeId, 5)
-            const autoPort = await generateAvailablePort(targetNodeId)
-
-            portSessions.set(m.sender, {
-                uuid,
-                server,
-                node,
-                nodeId,
-                nodeName,
-                targetNodeId,
-                availablePorts,
-                autoPort,
-                createdAt: Date.now()
-            })
-
-            let portOptions = ""
-            for (const port of availablePorts) {
-                portOptions += "├ 🔌 `" + port + "`\n"
-            }
-
-            const serverName = server.attributes?.name || server.name || "Server"
-
-            return m.reply(card("🔌 PILIH PORT", [
-                "✅ Server ditemukan!",
-                "",
-                "─────────────────",
-                "",
-                "📋 *Detail Server Lama:*",
-                `├ Name: ${serverName}`,
-                `├ UUID: ${uuid.substring(0, 12)}...`,
-                `├ Node: ${nodeName}`,
-                "",
-                "─────────────────",
-                "",
-                "🔌 *Pilih Port:*",
-                "",
-                portOptions || "",
-                "├ 🔄 *Auto* (port acak)",
-                "",
-                "─────────────────",
-                "",
-                "Ketik nomor port yang kamu inginkan.",
-                `Port auto: *${autoPort}*`,
-                "",
-                "_Contoh ketik: 25565_",
-                "_atau ketik: auto_",
-                "",
-                "⚠️ Port akan di-lock selama 5 menit."
-            ], { emoji: "🔌" }))
+            result = await findServerNode(uuid)
         } catch (error) {
             console.error("[Urgent Error]", error)
-            releaseLock(m.sender)
             return m.reply(card("ERROR", [
                 `❌ Gagal mencari server.`,
                 "",
@@ -249,72 +226,204 @@ export default {
                 "_Coba lagi atau hubungi owner._"
             ], { emoji: "❌" }))
         }
+
+        if (!result) {
+            return m.reply(card("SERVER NOT FOUND", [
+                `❌ Server dengan UUID *${uuid}* tidak ditemukan.`,
+                "",
+                "Pastikan UUID yang kamu masukkan benar.",
+                "",
+                "_Tip: UUID ada di detail server di panel._"
+            ], { emoji: "🔍" }))
+        }
+
+        const { node, server } = result
+        const nodeId = String(node.id)
+        const nodeName = node.name
+
+        if (isNodeBlacklisted(nodeId)) {
+            return m.reply(card("NODE BLACKLISTED", [
+                `⚠️ Server ini berada di node *${nodeName}* (ID: ${nodeId})`,
+                "",
+                "🛑 Node tersebut sedang *DITUTUP/DIMATIKAN*.",
+                "",
+                "Kamu tidak bisa claim server dari node ini.",
+                "",
+                "_Hubungi owner untuk info lebih lanjut._"
+            ], { emoji: "🛑" }))
+        }
+
+        if (!isNodeAllowed(nodeId)) {
+            return m.reply(card("NODE NOT ALLOWED", [
+                `⚠️ Node *${nodeName}* (ID: ${nodeId})`,
+                "",
+                "Tidak diizinkan untuk emergency clone.",
+                "",
+                "_Hubungi owner._"
+            ], { emoji: "⚠️" }))
+        }
+
+        const config = getUrgentConfig()
+        const targetNodeId = config.defaultNode
+
+        if (!targetNodeId) {
+            return m.reply(card("CONFIG ERROR", [
+                "⚠️ Default node untuk urgent belum diset.",
+                "",
+                "_Owner perlu set dengan .nodeto_"
+            ], { emoji: "⚠️" }))
+        }
+
+        const serverName = server.attributes?.name || server.name || "Server"
+        const limits = server.limits || server.attributes?.limits || {}
+
+        // ─── Simpan sesi tahap KONFIRMASI + tampilkan tombol konfirmasi (locked) ───
+        setUrgentSession(m.sender, {
+            step: "confirm",
+            uuid,
+            server,
+            node,
+            nodeId,
+            nodeName,
+            targetNodeId
+        })
+
+        return Button.menu({
+            sock,
+            m,
+            body: card("KONFIRMASI SERVER", [
+                "✅ Server ditemukan!",
+                "",
+                "─────────────────",
+                "",
+                "📋 *Detail Server:*",
+                `├ Name: ${serverName}`,
+                `├ UUID: ${uuid.substring(0, 12)}...`,
+                `├ Node asal: ${nodeName} (ID: ${nodeId})`,
+                `├ Node target: #${targetNodeId}`,
+                `├ Spec: 🧠 ${limits.memory ?? 0} MB • 💿 ${limits.disk ?? 0} MB • ⚙️ ${limits.cpu ?? 0}%`,
+                "",
+                "─────────────────",
+                "",
+                "⚠️ Server akan di-*CLONE identik* ke node target.",
+                "Pastikan ini benar server kamu.",
+                "",
+                "_Sesi berakhir otomatis dalam 5 menit._"
+            ], { emoji: "🛡️" }),
+            footer: "© Chaeul",
+            lock: m.sender,
+            buttons: [
+                { type: "quick", text: "✅ Ya, Clone Server", id: "urgent_confirm" },
+                { type: "quick", text: "❌ Batalkan", id: "urgent_cancel" }
+            ]
+        })
     }
 }
 
-export async function handlePortInput(sock, m, input) {
-    const sender = m.sender
-    const session = portSessions.get(sender)
-    if (!session) return null
+// ═══════════════════════════════════════════════════════════════
+// BUTTON: Konfirmasi server → lanjut pilih port
+// ═══════════════════════════════════════════════════════════════
+async function handleConfirm(sock, m) {
+    // Hanya pemilik sesi (command runner) yang bisa konfirmasi.
+    const session = findUrgentSession(m.sender)
+    if (!session || session.step !== "confirm") return null
 
-    const inputPort = String(input).trim().toLowerCase()
+    // Buat lock port & ambil daftar port yang SAH (allocation kosong)
+    createLock(m.sender, session.uuid)
 
-    if (inputPort === "auto" || inputPort === "acak" || inputPort === "random") {
-        const { uuid, server, nodeName, targetNodeId } = session
+    const availablePorts = await getAvailablePortList(session.targetNodeId, 10)
+    const autoPort = await generateAvailablePort(session.targetNodeId)
 
-        await m.reply("⏳ Membuat server dengan port auto...")
-
-        try {
-            const { cloneServer } = await import("../../lib/urgent.js")
-
-            const autoPort = await generateAvailablePort(targetNodeId)
-            if (!autoPort) {
-                releaseLock(sender)
-                portSessions.delete(sender)
-                return m.reply(card("ERROR", ["❌ Tidak ada port tersedia."], { emoji: "❌" }))
-            }
-
-            updateLockPort(sender, autoPort)
-
-            const newServer = await cloneServer(server, targetNodeId, autoPort)
-            const newServerId = newServer.attributes?.id || newServer.id
-            const ipAlias = getIpAlias()
-            const ipAddress = getIpAddress()
-            const serverName = server.attributes?.name || server.name || "Server"
-
-            claimUUID(uuid, sender, newServerId, {
-                port: autoPort,
-                ipAlias: ipAlias,
-                ipAddress: ipAddress,
-                targetNode: String(targetNodeId),
-                originalNode: nodeName,
-                serverName: serverName
-            })
-
-            releaseLock(sender)
-            portSessions.delete(sender)
-
-            const newServerName = newServer.attributes?.name || newServer.name || serverName + "_URGENT"
-
-            return await sendCloneSuccess(sock, m, {
-                uuid,
-                serverName,
-                nodeName,
-                newServerName,
-                newServerId,
-                port: autoPort
-            })
-        } catch (error) {
-            releaseLock(sender)
-            portSessions.delete(sender)
-            console.error("[Urgent Port Auto Error]", error)
-            return m.reply(card("ERROR", ["❌ Gagal: " + error.message], { emoji: "❌" }))
-        }
+    if (!availablePorts.length || !autoPort) {
+        releaseLock(m.sender)
+        deleteUrgentSession(m.sender)
+        return m.reply(card("ERROR", [
+            "❌ Tidak ada port tersedia di node target.",
+            "",
+            "_Semua allocation sudah dipakai. Hubungi owner._"
+        ], { emoji: "❌" }))
     }
 
-    const port = parseInt(inputPort)
+    setUrgentSession(m.sender, { ...session, step: "port", availablePorts })
 
-    if (isNaN(port) || port < 1 || port > 65535) {
+    const serverName = session.server.attributes?.name || session.server.name || "Server"
+
+    // Port sebagai pilihan list (rapi) + tombol auto & batal
+    const rows = availablePorts.map((port) => ({
+        title: `🔌 ${port}`,
+        description: "Klik untuk memakai port ini",
+        id: `urgent_port:${port}`
+    }))
+
+    return Button.menu({
+        sock,
+        m,
+        body: card("PILIH PORT", [
+            `📋 Server: *${serverName}*`,
+            `🎯 Node target: #${session.targetNodeId}`,
+            "",
+            `🔌 Port tersedia: *${availablePorts.length}*`,
+            "",
+            "Pilih port dari daftar, klik *Port Acak*,",
+            "atau ketik nomor port secara manual.",
+            "",
+            "_Ketik batal untuk membatalkan._"
+        ], { emoji: "🔌" }),
+        footer: "© Chaeul",
+        lock: m.sender,
+        buttons: [
+            { type: "quick", text: "🔄 Port Acak", id: "urgent_port:auto" },
+            { type: "quick", text: "❌ Batalkan", id: "urgent_cancel" }
+        ],
+        sections: rows.length ? [{ title: "✦ PORT TERSEDIA", rows }] : []
+    })
+}
+
+// ═══════════════════════════════════════════════════════════════
+// BUTTON: Batalkan request
+// ═══════════════════════════════════════════════════════════════
+async function handleCancel(sock, m) {
+    const session = findUrgentSession(m.sender)
+    if (!session) return null
+
+    releaseLock(m.sender)
+    deleteUrgentSession(m.sender)
+
+    return m.reply(card("DIBATALKAN", [
+        "❌ Request urgent dibatalkan.",
+        "",
+        "_Server tidak jadi di-clone._"
+    ], { emoji: "❌" }))
+}
+
+// ═══════════════════════════════════════════════════════════════
+// BUTTON: Pilih port dari daftar / tombol auto
+// ═══════════════════════════════════════════════════════════════
+async function handlePortButton(sock, m, raw) {
+    const session = findUrgentSession(m.sender)
+    if (!session || session.step !== "port") return null
+
+    const value = String(raw).trim().toLowerCase()
+
+    if (value === "auto" || value === "acak" || value === "random") {
+        const port = await generateAvailablePort(session.targetNodeId)
+        if (!port) {
+            releaseLock(m.sender)
+            deleteUrgentSession(m.sender)
+            return m.reply(card("ERROR", ["❌ Tidak ada port tersedia."], { emoji: "❌" }))
+        }
+        return await doClone(sock, m, session, port)
+    }
+
+    const port = parseInt(value)
+    if (isNaN(port)) return null
+
+    return await validateAndClone(sock, m, session, port)
+}
+
+// ─── Validasi port lalu clone ───
+async function validateAndClone(sock, m, session, port) {
+    if (port < 1 || port > 65535) {
         return m.reply(card("ERROR", [
             "❌ Port tidak valid.",
             "",
@@ -323,100 +432,93 @@ export async function handlePortInput(sock, m, input) {
         ], { emoji: "❌" }))
     }
 
-    const { uuid, server, nodeName, targetNodeId } = session
-
-    const lockStatus = isPortLocked(port, sender)
+    const lockStatus = isPortLocked(port, m.sender)
     if (lockStatus.locked) {
         return m.reply(card("PORT TAKEN", [
             `❌ Port *${port}* sedang diproses user lain.`,
             "",
-            "Silakan pilih port lain atau ketik *auto* untuk port acak.",
-            "",
-            "_Contoh ketik: 25565_",
-            "_atau ketik: auto_"
+            "Silakan pilih port lain atau gunakan *Port Acak*."
         ], { emoji: "🔌" }))
     }
 
-    const available = await isPortAvailable(targetNodeId, port)
+    const available = await isPortAvailable(session.targetNodeId, port)
     if (!available) {
-        const newAvailable = await getAvailablePortList(targetNodeId, 5)
-        let options = ""
-        for (const p of newAvailable) {
-            options += "├ 🔌 `" + p + "`\n"
-        }
-
+        const fresh = await getAvailablePortList(session.targetNodeId, 5)
         return m.reply(card("PORT TAKEN", [
             `❌ Port *${port}* sudah digunakan atau tidak tersedia.`,
             "",
             "Port yang tersedia:",
-            options,
-            "├ 🔄 *auto* (port acak)",
+            ...(fresh.length ? fresh.map((p) => `├ 🔌 \`${p}\``) : ["├ _(kosong — hubungi owner)_"]),
             "",
-            "Pilih port lain atau ketik *auto*."
+            "Pilih port lain, atau ketik *batal*."
         ], { emoji: "🔌" }))
     }
 
-    await m.reply("⏳ Membuat server dengan port yang dipilih...")
-
-    try {
-        const { cloneServer } = await import("../../lib/urgent.js")
-
-        updateLockPort(sender, port)
-
-        const newServer = await cloneServer(server, targetNodeId, port)
-        const newServerId = newServer.attributes?.id || newServer.id
-        const ipAlias = getIpAlias()
-        const ipAddress = getIpAddress()
-        const serverName = server.attributes?.name || server.name || "Server"
-
-        claimUUID(uuid, sender, newServerId, {
-            port: port,
-            ipAlias: ipAlias,
-            ipAddress: ipAddress,
-            targetNode: String(targetNodeId),
-            originalNode: nodeName,
-            serverName: serverName
-        })
-
-        releaseLock(sender)
-        portSessions.delete(sender)
-
-        const newServerName = newServer.attributes?.name || newServer.name || serverName + "_URGENT"
-
-        return await sendCloneSuccess(sock, m, {
-            uuid,
-            serverName,
-            nodeName,
-            newServerName,
-            newServerId,
-            port
-        })
-    } catch (error) {
-        releaseLock(sender)
-        portSessions.delete(sender)
-        console.error("[Urgent Clone Error]", error)
-
-        if (error.message.includes("Port")) {
-            return m.reply(card("PORT ERROR", [
-                "❌ " + error.message,
-                "",
-                "Silakan coba dengan port lain atau ketik *auto*."
-            ], { emoji: "❌" }))
-        }
-
-        return m.reply(card("ERROR", ["❌ Gagal: " + error.message], { emoji: "❌" }))
-    }
+    return await doClone(sock, m, session, port)
 }
 
+// ═══════════════════════════════════════════════════════════════
+// TEXT INPUT: dipanggil handler.js saat user mengetik port manual.
+// State diambil dari lib/urgent.js (shared antar instance modul) —
+// inilah perbaikan "bot tidak melisten chat port".
+// ═══════════════════════════════════════════════════════════════
+export async function handlePortInput(sock, m, input) {
+    // Hanya proses pemilik sesi (command runner) — user lain diabaikan.
+    const session = findUrgentSession(m.sender)
+    if (!session) return null
+
+    const text = String(input).trim().toLowerCase()
+
+    // Klik button di-route lewat run(), bukan di sini
+    if (text.startsWith("urgent_")) return null
+
+    if (text === "batal" || text === "cancel") {
+        releaseLock(m.sender)
+        deleteUrgentSession(m.sender)
+        return m.reply(card("DIBATALKAN", [
+            "❌ Request urgent dibatalkan.",
+            "",
+            "_Server tidak jadi di-clone._"
+        ], { emoji: "❌" }))
+    }
+
+    // Masih tahap konfirmasi — user harus menekan tombol dulu
+    if (session.step === "confirm") {
+        return m.reply(card("KONFIRMASI DULU", [
+            "⚠️ Tekan tombol *✅ Ya, Clone Server* dulu",
+            "pada pesan konfirmasi di atas.",
+            "",
+            "_Atau ketik *batal* untuk membatalkan._"
+        ], { emoji: "🛡️" }))
+    }
+
+    // Tahap pilih port
+    if (text === "auto" || text === "acak" || text === "random") {
+        const port = await generateAvailablePort(session.targetNodeId)
+        if (!port) {
+            releaseLock(m.sender)
+            deleteUrgentSession(m.sender)
+            return m.reply(card("ERROR", ["❌ Tidak ada port tersedia."], { emoji: "❌" }))
+        }
+        return await doClone(sock, m, session, port)
+    }
+
+    const port = parseInt(text)
+    if (isNaN(port)) return null // bukan input port → biarkan flow lain menangani
+
+    return await validateAndClone(sock, m, session, port)
+}
+
+// API kompatibel utk lib/handler.js (state kini di lib/urgent.js)
 export function hasPortSession(sender) {
-    return portSessions.has(sender)
+    return hasUrgentSession(sender)
 }
 
 export function cancelPortSession(sender) {
-    const session = portSessions.get(sender)
+    const session = findUrgentSession(sender)
     if (session) {
         releaseLock(sender)
-        portSessions.delete(sender)
+        deleteUrgentSession(sender)
         return true
     }
     return false
