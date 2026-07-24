@@ -20,8 +20,8 @@ export default {
         // ─── Tampilkan help / list ───
         if (!args[0] || args[0] === "list") {
             const whitelist = getWhitelistNodes()
-            const nodes = await getNodes().catch(() => ({ data: [] }))
-            const nodeList = nodes?.data || nodes || []
+            // getNodes() mengembalikan array yang sudah di-unwrap
+            const nodeList = await getNodes().catch(() => [])
 
             let listText = ""
             if (whitelist.length === 0) {
@@ -29,8 +29,8 @@ export default {
                     "Tidak ada node spesifik di-whitelist.\nSemua node (kecuali yang di-blacklist) boleh."
             } else {
                 for (const nodeId of whitelist) {
-                    const node = nodeList.find((n) => String(n.id) === String(nodeId))
-                    const name = node?.name || `Node ${nodeId}`
+                    const node = nodeList.find((n) => String(n.id ?? n.attributes?.id) === String(nodeId))
+                    const name = node?.name ?? node?.attributes?.name ?? `Node ${nodeId}`
                     listText += `├ ✅ ${name} (ID: ${nodeId})\n`
                 }
             }
@@ -106,10 +106,10 @@ export default {
         // Ambil nama node jika bisa
         let nodeName = ""
         try {
-            const nodes = await getNodes()
-            const nodeList = nodes?.data || nodes || []
-            const node = nodeList.find((n) => String(n.id) === String(nodeId))
-            if (node) nodeName = ` (${node.name})`
+            const nodeList = await getNodes()
+            const node = nodeList.find((n) => String(n.id ?? n.attributes?.id) === String(nodeId))
+            const name = node?.name ?? node?.attributes?.name
+            if (name) nodeName = ` (${name})`
         } catch {}
 
         return m.reply(

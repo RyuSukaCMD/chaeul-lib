@@ -1,3 +1,4 @@
+import Button from "../../lib/button.js"
 import { card } from "../../lib/ui.js"
 import {
     isUrgentOpen,
@@ -9,6 +10,7 @@ import {
     claimUUID,
     getIpAlias,
     getIpAddress,
+    getPanelUrl,
     hasActiveLock,
     getLockInfo,
     createLock,
@@ -21,6 +23,49 @@ import {
 } from "../../lib/urgent.js"
 
 const portSessions = new Map()
+
+// ─── Pesan sukses clone: kartu + tombol copy address & buka panel ───
+async function sendCloneSuccess(sock, m, { uuid, serverName, nodeName, newServerName, newServerId, port }) {
+    const ipAlias = getIpAlias()
+    const ipAddress = getIpAddress()
+    const connectString = `${ipAlias}:${port}`
+    const panelUrl = getPanelUrl()
+
+    const buttons = [{ type: "copy", text: "📋 Copy Address", code: connectString }]
+    if (panelUrl) buttons.push({ type: "url", text: "🌐 Buka Panel", url: panelUrl })
+
+    return Button.menu({
+        sock,
+        m,
+        body: card("✅ URGENT SUCCESS", [
+            "🎉 Server berhasil di-clone!",
+            "",
+            "─────────────────",
+            "",
+            "📋 *Server Lama:*",
+            `├ Name: ${serverName}`,
+            `├ UUID: ${String(uuid).substring(0, 12)}...`,
+            `├ Node: ${nodeName}`,
+            "",
+            "📋 *Server Baru:*",
+            `├ Name: ${newServerName}`,
+            `├ UUID: ${newServerId}`,
+            "",
+            "🌐 *Connection:*",
+            `├ 🔌 Port: ${port}`,
+            `├ 🌐 Alias: ${ipAlias}`,
+            `├ 📍 IP: ${ipAddress}`,
+            "",
+            "─────────────────",
+            "",
+            `✅ Connect: \`${connectString}\``,
+            "",
+            "Server baru sudah dibuat dan siap digunakan!"
+        ], { emoji: "🎉" }),
+        footer: "© Chaeul",
+        buttons
+    })
+}
 
 export default {
     command: ["urgent"],
@@ -250,33 +295,15 @@ export async function handlePortInput(sock, m, input) {
             portSessions.delete(sender)
 
             const newServerName = newServer.attributes?.name || newServer.name || serverName + "_URGENT"
-            const connectString = ipAlias + ":" + autoPort
 
-            return m.reply(card("✅ URGENT SUCCESS", [
-                "🎉 Server berhasil di-clone!",
-                "",
-                "─────────────────",
-                "",
-                "📋 *Server Lama:*",
-                `├ Name: ${serverName}`,
-                `├ UUID: ${uuid.substring(0, 12)}...`,
-                `├ Node: ${nodeName}`,
-                "",
-                "📋 *Server Baru:*",
-                `├ Name: ${newServerName}`,
-                `├ UUID: ${newServerId}`,
-                "",
-                "🌐 *Connection:*",
-                `├ 🔌 Port: ${autoPort}`,
-                `├ 🌐 Alias: ${ipAlias}`,
-                `├ 📍 IP: ${ipAddress}`,
-                "",
-                "─────────────────",
-                "",
-                "✅ Connect: `" + connectString + "`",
-                "",
-                "Server baru sudah dibuat dan siap digunakan!"
-            ], { emoji: "🎉" }))
+            return await sendCloneSuccess(sock, m, {
+                uuid,
+                serverName,
+                nodeName,
+                newServerName,
+                newServerId,
+                port: autoPort
+            })
         } catch (error) {
             releaseLock(sender)
             portSessions.delete(sender)
@@ -355,33 +382,15 @@ export async function handlePortInput(sock, m, input) {
         portSessions.delete(sender)
 
         const newServerName = newServer.attributes?.name || newServer.name || serverName + "_URGENT"
-        const connectString = ipAlias + ":" + port
 
-        return m.reply(card("✅ URGENT SUCCESS", [
-            "🎉 Server berhasil di-clone!",
-            "",
-            "─────────────────",
-            "",
-            "📋 *Server Lama:*",
-            `├ Name: ${serverName}`,
-            `├ UUID: ${uuid.substring(0, 12)}...`,
-            `├ Node: ${nodeName}`,
-            "",
-            "📋 *Server Baru:*",
-            `├ Name: ${newServerName}`,
-            `├ UUID: ${newServerId}`,
-            "",
-            "🌐 *Connection:*",
-            `├ 🔌 Port: ${port}`,
-            `├ 🌐 Alias: ${ipAlias}`,
-            `├ 📍 IP: ${ipAddress}`,
-            "",
-            "─────────────────",
-            "",
-            "✅ Connect: `" + connectString + "`",
-            "",
-            "Server baru sudah dibuat dan siap digunakan!"
-        ], { emoji: "🎉" }))
+        return await sendCloneSuccess(sock, m, {
+            uuid,
+            serverName,
+            nodeName,
+            newServerName,
+            newServerId,
+            port
+        })
     } catch (error) {
         releaseLock(sender)
         portSessions.delete(sender)

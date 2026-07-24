@@ -28,16 +28,15 @@ export default {
         const ipAlias = getIpAlias()
         const ipAddress = getIpAddress()
 
-        // Ambil nama node dari list
+        // Ambil nama node dari list (sudah di-unwrap oleh lib/pterodactyl.js)
         let nodes = []
         try {
-            const nodesData = await getNodes()
-            nodes = nodesData?.data || nodesData || []
+            nodes = await getNodes()
         } catch {}
 
         const getNodeName = (id) => {
-            const node = nodes.find((n) => String(n.id) === String(id))
-            return node?.name || `Node ${id}`
+            const node = nodes.find((n) => String(n.id ?? n.attributes?.id) === String(id))
+            return node?.name ?? node?.attributes?.name ?? `Node ${id}`
         }
 
         // Format blacklist
