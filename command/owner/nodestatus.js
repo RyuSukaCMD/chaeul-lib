@@ -12,6 +12,59 @@ import {
     formatCpuBar,
     calcNodeUsage
 } from "../../lib/pterodactyl.js"
+import net from "net"
+
+// ─── Ping Node (TCP connect test) ───
+async function pingNode(fqdn, port = 8080, timeout = 8000) {
+    return new Promise((resolve) => {
+        const socket = new net.Socket()
+        let responded = false
+
+        const timer = setTimeout(() => {
+            if (!responded) {
+                responded = true
+                socket.destroy()
+                resolve(false)
+            }
+        }, timeout)
+
+        socket.setTimeout(timeout)
+
+        socket.on("connect", () => {
+            if (!responded) {
+                responded = true
+                clearTimeout(timer)
+                socket.destroy()
+                resolve(true)
+            }
+        })
+
+        socket.on("error", () => {
+            if (!responded) {
+                responded = true
+                clearTimeout(timer)
+                resolve(false)
+            }
+        })
+
+        socket.on("timeout", () => {
+            if (!responded) {
+                responded = true
+                socket.destroy()
+                resolve(false)
+            }
+        })
+
+        try {
+            socket.connect(port, fqdn)
+        } catch {
+            if (!responded) {
+                responded = true
+                resolve(false)
+            }
+        }
+    })
+}
 
 export default {
     command: ["nodestatus", "nodes", "node", /^nodestatus_detail:.+$/, /^nodestatus_all$/],
@@ -103,11 +156,9 @@ export default {
 
             // ─── Multi Node / All Nodes ───
             if (nodes.length === 1) {
-                // Kalau cuma 1 node, langsung tampilkan detail
                 return await showSingleNode(sock, m, nodes[0], locationMap)
             }
 
-            // Multi-node: tampilkan list dengan button
             return await showMultiNodeMenu(sock, m, nodes, locationMap)
         } catch (error) {
             console.error("[NodeStatus Error]", error)
@@ -149,19 +200,19 @@ async function handleShowAllNodes(sock, m) {
             locationMap[loc.id] = loc.short || loc.name || `Loc ${loc.id}`
         }
 
-        let text = `╭─❏ 📊 *ALL NODES OVERVIEW*\n┃\n┃ 🌐 Total: ${nodes.length} node\n┃\n`
+        let text = `╭─❏ 📊 *ALL NODES OVERVIEW*\\n┃\\n┃ 🌐 Total: ${nodes.length} node\\n┃\\n`
 
         for (const node of nodes) {
             const loc = locationMap[node.location_id] || `Loc #${node.location_id}`
-            text += `┣─❏ 🖥️ *${node.name}*\n`
-            text += `┃   📍 ${loc}\n`
-            text += `┃   🧠 ${formatBytes((node.memory || 0) * 1024 * 1024)} RAM\n`
-            text += `┃   💿 ${formatBytes((node.disk || 0) * 1024 * 1024 * 1024)} Disk\n`
-            text += `┃   ⚙️  ${node.cpu} Cores\n`
-            text += `┃\n`
+            text += `┣─❏ 🖥️ *${node.name}*\\n`
+            text += `┃   📍 ${loc}\\n`
+            text += `┃   🧠 ${formatBytes((node.memory || 0) * 1024 * 1024)} RAM\\n`
+            text += `┃   💿 ${formatBytes((node.disk || 0) * 1024 * 1024 * 1024)} Disk\\n`
+            text += `┃   ⚙️  ${node.cpu} Cores\\n`
+            text += `┃\\n`
         }
 
-        text += `╰───────────────────❏\n\n_💡 Ketik ${global.prefix}nodestatus <id> untuk detail_`
+        text += `╰───────────────────❏\\n\\n_💡 Ketik ${global.prefix}nodestatus <id> untuk detail_`
 
         return m.reply(text)
     } catch (error) {
@@ -196,7 +247,7 @@ async function handleShowNodeDetail(sock, m, nodeId) {
     }
 }
 
-// ─── Show Single Node ───
+// ─── Show Single Node (UPDATED - matches your API response) ───
 
 async function showSingleNode(sock, m, node, locationMap) {
     const nodeId = node.id
@@ -212,12 +263,12 @@ async function showSingleNode(sock, m, node, locationMap) {
     const servers = serversData?.data || serversData || []
     const allocations = allocData?.data || allocData || []
 
-    // Parse node specs
-    const memoryTotal = (node.memory || 0) * 1024 * 1024 // MB -> bytes
-    const diskTotal = (node.disk || 0) * 1024 * 1024 * 1024 // GB -> bytes
+    // ─── Parse node dari API response (sesuai contoh yang kamu kasih) ───
+    const memoryTotal = (node.memory || 0) * 1024 * 1024
+    const diskTotal = (node.disk || 0) * 1024 * 1024 * 1024
     const cpuTotal = node.cpu || 0
 
-    // Calculate usage dari servers
+    // Usage dari servers
     const usage = calcNodeUsage(servers)
 
     // Allocation stats
@@ -225,20 +276,31 @@ async function showSingleNode(sock, m, node, locationMap) {
     const usedAllocs = allocations.filter((a) => a.attributes?.assigned).length
     const freeAllocs = totalAllocs - usedAllocs
 
-    // Memory usage (estimate based on servers)
-    // Note: Real-time memory perlu akses daemon, di sini kita estimasi
     const memoryUsed = usage.usedMemory * 1024 * 1024
     const diskUsed = usage.usedDisk * 1024 * 1024 * 1024
 
-    // Format text
     const location = locationMap[node.location_id] || `Location #${node.location_id}`
     const memoryBar = formatMemoryBar(memoryUsed, memoryTotal)
     const diskBar = formatDiskBar(diskUsed, diskTotal)
-    const cpuBar = formatCpuBar(0) // CPU usage perlu real-time
+
+    // ─── PING NODE (auto detect fqdn + port) ───
+    let nodeStatus = "⏳ Checking..."
+    const fqdn = node.fqdn || node.attributes?.fqdn
+    const daemonPort = node.daemon_listen || node.attributes?.daemon_listen || 8080
+
+    if (fqdn) {
+        const isOnline = await pingNode(fqdn, daemonPort, 7000)
+        nodeStatus = isOnline 
+            ? "🟢 *ONLINE*" 
+            : "🔴 *OFFLINE*"
+    } else {
+        nodeStatus = "⚠️ *No FQDN*"
+    }
 
     const text = `
 ╭─❏ 🖥️ *${nodeName}* (ID: ${nodeId})
 ┃
+┃ ${nodeStatus}
 ┃ 📍 Lokasi: ${location}
 ┃ 🌐 UUID: ${nodeUuid}
 ┃
@@ -246,20 +308,20 @@ async function showSingleNode(sock, m, node, locationMap) {
 ┃
 ┃ 🧠 Memory: ${memoryBar}
 ┃    Total: ${formatBytes(memoryTotal)}
-┃    Dialokasikan ke server: ${formatBytes(usage.totalMemory * 1024 * 1024)}
+┃    Dialokasikan: ${formatBytes(usage.totalMemory * 1024 * 1024)}
 ┃
 ┃ 💿 Disk: ${diskBar}
 ┃    Total: ${formatBytes(diskTotal)}
-┃    Dialokasikan ke server: ${formatBytes(usage.totalDisk * 1024 * 1024 * 1024)}
+┃    Dialokasikan: ${formatBytes(usage.totalDisk * 1024 * 1024 * 1024)}
 ┃
 ┃ ⚙️ CPU: ${cpuTotal} Cores
-┃    Overcommit: ${node.cpu_overallocate || 0}%
+┃    Overcommit: ${node.cpu_overallocate || node.attributes?.cpu_overallocate || 0}%
 ┃
 ┃ ─── 🖧 Network ───
 ┃
-┃ 📦 Upload Limit: ${node.upload_size || "Unlimited"} MB/s
-┃ 🔌 Daemon Port: ${node.daemon_listening_port || 8080}
-┃ 📁 Daemon Path: ${node.daemon_base || "/var/lib/pterodactyl/volumes"}
+┃ 📦 Upload Limit: ${node.upload_size || node.attributes?.upload_size || "Unlimited"} MB/s
+┃ 🔌 Daemon Port: ${daemonPort}
+┃ 📁 Daemon Path: ${node.daemon_base || node.attributes?.daemon_base || "/var/lib/pterodactyl/volumes"}
 ┃
 ┃ ─── 📡 Allocation ───
 ┃
@@ -294,7 +356,6 @@ async function showMultiNodeMenu(sock, m, nodes, locationMap) {
         }
     })
 
-    // Add "all" option
     rows.push({
         title: "📊 Tampilkan Semua",
         description: `Lihat ringkasan semua ${nodes.length} node`,
@@ -324,14 +385,9 @@ async function showMultiNodeMenu(sock, m, nodes, locationMap) {
     })
 }
 
-// ─── Button Handler (di-load terpisah) ───
-// Catatan: Untuk handle button nodestatus_detail:N dan nodestatus_all,
-// perlu didaftarkan di handler.js atau via regex command
-
-// Export helper untuk button handler
+// ─── Button Handler ───
 export async function handleNodeButton(sock, m, buttonId) {
     if (buttonId === "nodestatus_all") {
-        // Tampilkan ringkasan semua node
         const nodes = await getNodes()
         const locations = await getLocations()
 
@@ -340,19 +396,19 @@ export async function handleNodeButton(sock, m, buttonId) {
             locationMap[loc.id] = loc.short || loc.name || `Loc ${loc.id}`
         }
 
-        let text = `╭─❏ 📊 *ALL NODES OVERVIEW*\n┃\n┃ 🌐 Total: ${nodes.length} node\n┃\n`
+        let text = `╭─❏ 📊 *ALL NODES OVERVIEW*\\n┃\\n┃ 🌐 Total: ${nodes.length} node\\n┃\\n`
 
         for (const node of nodes) {
             const loc = locationMap[node.location_id] || `Loc #${node.location_id}`
-            text += `┣─❏ 🖥️ *${node.name}*\n`
-            text += `┃   📍 ${loc}\n`
-            text += `┃   🧠 ${formatBytes((node.memory || 0) * 1024 * 1024)} RAM\n`
-            text += `┃   💿 ${formatBytes((node.disk || 0) * 1024 * 1024 * 1024)} Disk\n`
-            text += `┃   ⚙️  ${node.cpu} Cores\n`
-            text += `┃\n`
+            text += `┣─❏ 🖥️ *${node.name}*\\n`
+            text += `┃   📍 ${loc}\\n`
+            text += `┃   🧠 ${formatBytes((node.memory || 0) * 1024 * 1024)} RAM\\n`
+            text += `┃   💿 ${formatBytes((node.disk || 0) * 1024 * 1024 * 1024)} Disk\\n`
+            text += `┃   ⚙️  ${node.cpu} Cores\\n`
+            text += `┃\\n`
         }
 
-        text += `╰───────────────────❏\n\n_💡 Ketik .nodestatus <id> untuk detail_`
+        text += `╰───────────────────❏\\n\\n_💡 Ketik .nodestatus <id> untuk detail_`
 
         return m.reply(text)
     }
