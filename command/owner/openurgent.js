@@ -47,7 +47,7 @@ export default {
                     "─────────────────",
                     "",
                     "📋 *Command untuk user:*",
-                    `${global.prefix}urgent <uuid>`",
+                    `${global.prefix}urgent <uuid>`,
                     "",
                     warnText
                 ],

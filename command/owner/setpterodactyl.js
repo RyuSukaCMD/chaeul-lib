@@ -66,7 +66,7 @@ export default {
                         ``,
                         `📅 Diatur: ${lastUpdate}`,
                         ``,
-                        _Tip: Gunakan `${global.prefix}setpterodactyl reset` untuk menghapus konfigurasi._
+                        `_Tip: Gunakan \`${global.prefix}setpterodactyl reset\` untuk menghapus konfigurasi._`
                     ],
                     { emoji: "⚙️" }
                 )
