@@ -9,6 +9,9 @@ import {
     getUrgentMode,
     getClaimedUUIDs,
     claimUUID,
+    isCloneUUID,
+    getCloneInfo,
+    registerCloneUUID,
     getIpAlias,
     getIpAddress,
     getPanelUrl,
@@ -89,6 +92,18 @@ async function doClone(sock, m, session, port) {
         const newServer = await cloneServer(server, targetNodeId, port)
         const newServerId = newServer.attributes?.id || newServer.id
         const serverName = server.attributes?.name || server.name || "Server"
+
+        // ANTI INFINITE CLONE: catat UUID server hasil clone supaya
+        // UUID tersebut tidak bisa dipakai untuk clone lagi.
+        const newUuid = newServer.attributes?.uuid || newServer.uuid || null
+        if (newUuid) {
+            registerCloneUUID(newUuid, {
+                originalUUID: uuid,
+                ownerJid: m.sender,
+                node: String(targetNodeId),
+                serverId: newServerId
+            })
+        }
 
         const ipAlias = getIpAlias()
         const ipAddress = getIpAddress()
@@ -201,6 +216,22 @@ export default {
         const uuid = args[0].trim()
         if (uuid.length < 8) {
             return m.reply(card("ERROR", ["❌ UUID terlalu pendek. Pastikan UUID benar."], { emoji: "❌" }))
+        }
+
+        // ANTI INFINITE CLONE: UUID milik server HASIL clone → tolak.
+        if (isCloneUUID(uuid)) {
+            const cloneInfo = getCloneInfo(uuid)
+            return m.reply(card("CLONE BLOCKED", [
+                "🚫 UUID ini milik server *HASIL CLONE*.",
+                "",
+                "Server hasil clone *tidak bisa di-clone lagi*",
+                "(anti infinite clone).",
+                "",
+                cloneInfo?.originalUUID ? `📋 UUID server asal: \`${cloneInfo.originalUUID.substring(0, 18)}...\`` : "",
+                cloneInfo?.registeredAt ? `📅 Di-clone: ${new Date(cloneInfo.registeredAt).toLocaleString("id-ID", { timeZone: "Asia/Jakarta" })}` : "",
+                "",
+                "_Gunakan UUID server ASLI bila ingin claim._"
+            ].filter(Boolean), { emoji: "🚫" }))
         }
 
         const allClaimed = getClaimedUUIDs()

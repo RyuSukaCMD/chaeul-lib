@@ -6,6 +6,7 @@ import {
     getBlacklistNodes,
     getWhitelistNodes,
     getClaimedUUIDs,
+    getClonedUUIDs,
     getIpAlias,
     getIpAddress
 } from "../../lib/urgent.js"
@@ -27,6 +28,7 @@ export default {
         const blacklist = getBlacklistNodes()
         const whitelist = getWhitelistNodes()
         const claimed = getClaimedUUIDs()
+        const cloned = getClonedUUIDs()
         const ipAlias = getIpAlias()
         const ipAddress = getIpAddress()
 
@@ -102,6 +104,7 @@ ${claimedText}
 ┃ ─── 📈 STATS ───
 ┃
 ├ Total UUID di-claim: ${claimedList.length}
+├ Server clone tercatat (anti infinite): ${Object.keys(cloned).length}
 ├ Total blacklist: ${blacklist.length}
 ├ Total whitelist: ${whitelist.length}
 ┃
