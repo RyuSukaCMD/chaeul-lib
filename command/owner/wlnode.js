@@ -15,6 +15,7 @@ export default {
         "wlnode",
         "whitelistnode",
         /^wlnode_pick:\d+$/,
+        /^wlnode_force:\d+$/,
         /^wlnode_list$/
     ],
 
@@ -32,6 +33,10 @@ export default {
         }
         if (body.startsWith("wlnode_pick:")) {
             return await applyNodePick({ sock, m, action: "whitelist", nodeId: body.split(":")[1] })
+        }
+        // ⚡ Force Use: whitelist dipaksa walau node offline/maintenance
+        if (body.startsWith("wlnode_force:")) {
+            return await applyNodePick({ sock, m, action: "whitelist", nodeId: body.split(":")[1], force: true })
         }
 
         // ─── Tanpa argumen / "list" → picker interaktif seluruh node ───

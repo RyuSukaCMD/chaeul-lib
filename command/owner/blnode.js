@@ -15,6 +15,7 @@ export default {
         "blnode",
         "blacklistnode",
         /^blnode_pick:\d+$/,
+        /^blnode_force:\d+$/,
         /^blnode_list$/
     ],
 
@@ -32,6 +33,10 @@ export default {
         }
         if (body.startsWith("blnode_pick:")) {
             return await applyNodePick({ sock, m, action: "blacklist", nodeId: body.split(":")[1] })
+        }
+        // ⚡ Force Use: unblacklist dipaksa walau mode blacklist aktif
+        if (body.startsWith("blnode_force:")) {
+            return await applyNodePick({ sock, m, action: "blacklist", nodeId: body.split(":")[1], force: true })
         }
 
         // ─── Tanpa argumen / "list" → picker interaktif seluruh node ───
