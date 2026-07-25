@@ -548,7 +548,15 @@ async function validateAndClone(sock, m, session, port) {
     //  • assigned  → allocation ada tapi sudah dipakai server lain → TOLAK
     //  • free      → allocation kosong → langsung dipakai
     //  • creatable → belum ada → allocation DIBUAT dulu otomatis saat clone
-    const portState = await getPortState(session.targetNodeId, port)
+    //  • unknown   → daftar allocation tidak terbaca → lanjut saja,
+    //                cloneServer memverifikasi & membuat secara otoritatif
+    let portState = { state: "unknown" }
+    try {
+        portState = await getPortState(session.targetNodeId, port)
+    } catch (error) {
+        console.warn(`[Urgent] Pre-check port ${port} gagal: ${error.message} → lanjut clone`)
+    }
+
     if (portState.state === "assigned") {
         const fresh = await getAvailablePortList(session.targetNodeId, 5)
         return m.reply(card("PORT TAKEN", [
@@ -561,8 +569,8 @@ async function validateAndClone(sock, m, session, port) {
         ], { emoji: "🔌" }))
     }
 
-    if (portState.state === "creatable") {
-        console.log(`[Urgent] Port ${port} belum ada allocation → akan dibuat otomatis saat clone.`)
+    if (portState.state === "creatable" || portState.state === "unknown") {
+        console.log(`[Urgent] Port ${port} (${portState.state}) → allocation DIBUAT DULU sebelum server dibuat.`)
     }
 
     return await doClone(sock, m, session, port)
