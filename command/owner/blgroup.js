@@ -1,5 +1,6 @@
 import { addBlacklist, isBlacklist } from "../../lib/blacklistgroup.js"
 import { card } from "../../lib/ui.js"
+import { allowSilenceTemporarily } from "../../lib/silenceGuard.js"
 
 export default {
     command: ["blacklistgroup", "blgroup"],
@@ -23,12 +24,28 @@ export default {
 
         addBlacklist(m.chat)
 
+        // Grup langsung mati total → izinkan konfirmasi terakhir ini lewat.
+        allowSilenceTemporarily(m.chat)
+
         await m.react("✅")
 
         return m.reply(
-            card("BLACKLIST GROUP", ["✅ Grup ditambahkan ke blacklist.", "", `🆔 ${m.chat}`], {
-                emoji: "🚫"
-            })
+            card(
+                "BLACKLIST GROUP",
+                [
+                    "✅ Grup ditambahkan ke blacklist.",
+                    "",
+                    "Bot kini BENAR-BENAR mati di grup ini:",
+                    "• tidak ada command / tombol / antilink",
+                    "• tidak ada notifikasi apa pun",
+                    "• tidak ada teks \"grup belum terdaftar\"",
+                    "",
+                    `Pulihkan dengan: ${global.prefix}delbl (owner)`,
+                    "",
+                    `🆔 ${m.chat}`
+                ],
+                { emoji: "🚫" }
+            )
         )
     }
 }

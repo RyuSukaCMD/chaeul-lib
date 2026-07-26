@@ -1,6 +1,7 @@
 import Loader from "../../lib/loader.js"
 import { card } from "../../lib/ui.js"
 import { checkAdmin } from "../../lib/groupadmin.js"
+import { allowSilenceTemporarily } from "../../lib/silenceGuard.js"
 import {
     disableCommand,
     enableCommand,
@@ -69,6 +70,7 @@ export default {
                     )
                 }
                 enableAll(m.chat)
+                allowSilenceTemporarily(m.chat)
                 await m.react("✅")
                 return m.reply(
                     card("ENABLE COMMAND", `✅ SEMUA command diaktifkan kembali.`, {
@@ -78,20 +80,25 @@ export default {
             }
 
             disableAll(m.chat)
+            // Grup langsung "mati total" → beri izin bicara sesaat supaya
+            // konfirmasi ini masih terkirim.
+            allowSilenceTemporarily(m.chat)
             await m.react("✅")
             return m.reply(
                 card(
-                    "DISABLE COMMAND",
+                    "BOT DIMATIKAN DI GRUP INI",
                     [
-                        `🚫 SEMUA command dimatikan di grup ini.`,
-                        `Command group management tetap aktif`,
-                        `agar grup bisa dipulihkan.`,
+                        `🚫 SEMUA command dimatikan.`,
+                        `Bot kini BENAR-BENAR tidak bekerja di grup ini:`,
+                        `• tidak membalas command & tombol`,
+                        `• tidak ada notifikasi (welcome, absen, cuaca,`,
+                        `  node status, antilink, AFK, dll)`,
+                        `• tidak ada teks "grup belum terdaftar"`,
                         ``,
-                        `💡 Bisa mengaktifkan 1 command tertentu:`,
-                        `${global.prefix}enablecommand <command>`,
-                        `(mis. ${global.prefix}enablecommand menu)`,
-                        ``,
-                        `Aktifkan semua lagi: ${global.prefix}enablecommand all`
+                        `Yang masih dilayani hanya command pemulihan:`,
+                        `${global.prefix}enablecommand all  (nyalakan semua)`,
+                        `${global.prefix}enablecommand <command>  (whitelist 1)`,
+                        `${global.prefix}listdisablecommand`
                     ],
                     { emoji: "⚙️" }
                 )
@@ -132,6 +139,7 @@ export default {
                 )
             }
             enableCommand(m.chat, target)
+            allowSilenceTemporarily(m.chat)
             await m.react("✅")
             return m.reply(
                 card(
@@ -149,6 +157,7 @@ export default {
 
         // disable
         disableCommand(m.chat, target, adminFlag)
+        allowSilenceTemporarily(m.chat)
         await m.react("✅")
         return m.reply(
             card(

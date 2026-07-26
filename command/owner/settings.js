@@ -1,4 +1,5 @@
 import Button from "../../lib/button.js"
+import { getSettingToggles } from "../../lib/settings.js"
 
 export default {
     command: ["settings"],
@@ -10,6 +11,11 @@ export default {
     owner: true,
 
     async run({ sock, m }) {
+        // Pastikan objek setting selalu ada + nilai toggle terkini (restart-safe).
+        global.settings ||= {}
+        const toggles = getSettingToggles()
+        Object.assign(global.settings, toggles)
+
         const body = `
 『 ⚙️ *Chaeul SETTINGS* 』
 
