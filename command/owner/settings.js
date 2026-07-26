@@ -28,6 +28,13 @@ Kelola konfigurasi bot dengan mudah.
 ├ 🎙️ Auto Voice : ${global.settings.autovoice ? "✅ ON" : "❌ OFF"}
 ╰──────────────
 
+╭──〔 🛡️ SECURITY 〕
+│
+├ 👥 Group Only : ${global.settings.grouponly ? "✅ ON" : "❌ OFF"}
+├ 🚷 Block Private Chat : ${global.settings.blockpc ? "✅ ON" : "❌ OFF"}
+├ 📵 Block Call : ${global.settings.blockcall ? "✅ ON" : "❌ OFF"}
+╰──────────────
+
 Silahkan pilih pengaturan dibawah.
 `
 
@@ -86,6 +93,42 @@ Silahkan pilih pengaturan dibawah.
                             : "Enable Auto Voice",
 
                         id: ".autovoice"
+                    }
+                ]
+            },
+
+            {
+                title: "🛡️ Security",
+
+                rows: [
+                    {
+                        title: "👥 Group Only",
+
+                        description: global.settings.grouponly
+                            ? "Disable Group Only (bot respon PC lagi)"
+                            : "Enable Group Only (bot hanya respon di grup)",
+
+                        id: ".grouponly"
+                    },
+
+                    {
+                        title: "🚷 Block Private Chat",
+
+                        description: global.settings.blockpc
+                            ? "Disable Block PC (chat PC diizinkan)"
+                            : "Enable Block PC (chat PC = auto block)",
+
+                        id: ".blockpc"
+                    },
+
+                    {
+                        title: "📵 Block Call",
+
+                        description: global.settings.blockcall
+                            ? "Disable Block Call (panggilan dibiarkan)"
+                            : "Enable Block Call (panggilan ditolak + block)",
+
+                        id: ".blockcall"
                     }
                 ]
             }
