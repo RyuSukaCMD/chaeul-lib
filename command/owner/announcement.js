@@ -1,7 +1,7 @@
 import { card } from "../../lib/ui.js"
 import { fullWIB } from "../../lib/time.js"
 import { listRegisteredGroups } from "../../lib/groupmanage.js"
-import { isGroupSilent } from "../../lib/groupsilence.js"
+import { isGroupBlacklisted } from "../../lib/groupsilence.js"
 
 export default {
     command: ["announcement", "announce", "bc", "broadcast"],
@@ -50,7 +50,7 @@ export default {
         let skipped = 0
         for (const gjid of groups) {
             // Grup blacklist / disable-all → bot mati total di sana, skip.
-            if (isGroupSilent(gjid)) {
+            if (isGroupBlacklisted(gjid)) {
                 skipped++
                 continue
             }

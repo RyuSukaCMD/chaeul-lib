@@ -2,26 +2,42 @@ import Button from "../../lib/button.js"
 import { card } from "../../lib/ui.js"
 import {
     getSystemStates,
+    getGroupSystemStates,
     isKnownSystem,
     isSystemEnabled,
     setSystemEnabled,
-    toggleSystem
+    setGroupSystemEnabled,
+    toggleSystem,
+    toggleGroupSystem,
+    clearGroupSystem
 } from "../../lib/systems.js"
 
 const LOCK_RX = /​#lock=\d+$/
 const cleanBody = (m) => String(m.body || "").replace(LOCK_RX, "").trim()
 
 // ─── Kartu status seluruh sistem + tombol toggle ───
-function buildStatusCard() {
-    const states = getSystemStates()
+// Di dalam GRUP, .disable mengatur NOTIFIKASI GRUP ITU SAJA.
+// Di private chat, .disable mengatur setelan GLOBAL (semua grup).
+function buildStatusCard(jid) {
+    const scoped = !!jid
+    const states = scoped ? getGroupSystemStates(jid) : getSystemStates()
     const lines = [
-        "🎛️ *Kelola sistem background bot.*",
-        "Klik sistem di daftar untuk mematikan/menyalakan.",
+        scoped
+            ? "🎛️ *Kelola notifikasi untuk GRUP INI.*"
+            : "🎛️ *Kelola notifikasi bot (global).*",
+        scoped
+            ? "Hanya notifikasi di grup ini yang terpengaruh."
+            : "Berlaku sebagai default untuk semua grup.",
+        "",
+        "ℹ️ Command, auto-read, auto-typing & auto-voice",
+        "TIDAK terpengaruh setelan ini.",
         "",
         "─────────────────",
         "",
         ...states.map(
-            (s) => `${s.enabled ? "🟢" : "🔴"} *${s.name}* — ${s.enabled ? "ON" : "OFF"}`
+            (s) =>
+                `${s.enabled ? "🟢" : "🔴"} *${s.name}* — ${s.enabled ? "ON" : "OFF"}` +
+                (s.overridden ? " _(khusus grup)_" : "")
         ),
         "",
         "─────────────────",
@@ -41,18 +57,22 @@ function buildStatusCard() {
 }
 
 async function showStatus(sock, m) {
-    const { lines, rows } = buildStatusCard()
+    const scope = m.isGroup ? m.chat : null
+    const { lines, rows } = buildStatusCard(scope)
 
     return Button.menu({
         sock,
         m,
-        body: card("SYSTEMS CONTROL", lines, { emoji: "🎛️" }),
+        body: card(m.isGroup ? "NOTIFIKASI GRUP" : "SYSTEMS CONTROL", lines, { emoji: "🎛️" }),
         footer: "© Chaeul",
         lock: m.sender,
         buttons: [
             { type: "quick", text: "🔴 Matikan Semua", id: "disable_all:off" },
             { type: "quick", text: "🟢 Nyalakan Semua", id: "disable_all:on" },
-            { type: "quick", text: "🔄 Refresh", id: "disable_refresh" }
+            { type: "quick", text: "🔄 Refresh", id: "disable_refresh" },
+            ...(m.isGroup
+                ? [{ type: "quick", text: "♻️ Ikuti Global", id: "disable_reset" }]
+                : [])
         ],
         sections: rows.length ? [{ title: "✦ PILIH SISTEM", rows }] : []
     })
@@ -65,34 +85,56 @@ export default {
         "systems",
         /^disable_tgl:.+$/,
         /^disable_all:(on|off)$/,
-        /^disable_refresh$/
+        /^disable_refresh$/,
+        /^disable_reset$/
     ],
 
     owner: true,
 
     category: "Owner",
 
-    description: "Enable/disable sistem background (weather, node warning, dll) via tombol",
+    description:
+        "Atur NOTIFIKASI bot (weather, node warning, absen, welcome). Di grup = per-grup, di PC = global",
 
     async run({ sock, m, args }) {
         // ─── Router klik button ───
         const body = cleanBody(m)
 
+        // Cakupan: di grup → per-grup, di PC → global.
+        const scope = m.isGroup ? m.chat : null
+        const scopeLabel = m.isGroup ? "grup ini" : "semua grup (global)"
+
+        const applySet = (key, val) =>
+            scope ? setGroupSystemEnabled(scope, key, val) : setSystemEnabled(key, val)
+        const applyToggle = (key) => (scope ? toggleGroupSystem(scope, key) : toggleSystem(key))
+
         if (body === "disable_refresh") {
+            return await showStatus(sock, m)
+        }
+
+        // Kembalikan grup ini agar mengikuti setelan global lagi.
+        if (body === "disable_reset") {
+            if (m.isGroup) clearGroupSystem(m.chat)
+            await m.reply(
+                card("NOTIFIKASI GRUP", ["♻️ Grup ini kembali mengikuti setelan global."], {
+                    emoji: "♻️"
+                })
+            )
             return await showStatus(sock, m)
         }
 
         if (body.startsWith("disable_all:")) {
             const enabled = body.endsWith(":on")
             for (const s of getSystemStates()) {
-                setSystemEnabled(s.key, enabled)
+                applySet(s.key, enabled)
             }
             await m.reply(card(
                 enabled ? "✅ SEMUA ON" : "🔴 SEMUA OFF",
                 [
                     enabled
-                        ? "🟢 Semua sistem background *dinyalakan*."
-                        : "🔴 Semua sistem background *dimatikan*.",
+                        ? `🟢 Semua notifikasi *dinyalakan* untuk ${scopeLabel}.`
+                        : `🔴 Semua notifikasi *dimatikan* untuk ${scopeLabel}.`,
+                    "Command & auto-read tetap berjalan normal.",
                     "",
                     "Status terkini:"
                 ],
@@ -105,7 +147,7 @@ export default {
             const key = body.slice("disable_tgl:".length)
             if (!isKnownSystem(key)) return null
 
-            const nowOn = toggleSystem(key)
+            const nowOn = applyToggle(key)
             const sys = getSystemStates().find((s) => s.key === key)
 
             await m.reply(card(
@@ -127,16 +169,22 @@ export default {
             const action = (args[1] || "toggle").toLowerCase()
             let nowOn
             if (action === "on" || action === "enable" || action === "aktif" || action === "nyala") {
-                nowOn = setSystemEnabled(sub, true)
+                nowOn = applySet(sub, true)
             } else if (action === "off" || action === "disable" || action === "mati" || action === "nonaktif") {
-                nowOn = setSystemEnabled(sub, false)
+                nowOn = applySet(sub, false)
             } else {
-                nowOn = toggleSystem(sub)
+                nowOn = applyToggle(sub)
             }
             const sys = getSystemStates().find((s) => s.key === sub)
-            return m.reply(card(nowOn ? "✅ SYSTEM ON" : "🔴 SYSTEM OFF", [
-                `${nowOn ? "🟢" : "🔴"} *${sys?.name || sub}* sekarang *${nowOn ? "ON" : "OFF"}*.`
-            ], { emoji: nowOn ? "🟢" : "🔴" }))
+            return m.reply(
+                card(
+                    nowOn ? "✅ NOTIF ON" : "🔴 NOTIF OFF",
+                    [
+                        `${nowOn ? "🟢" : "🔴"} *${sys?.name || sub}* sekarang *${nowOn ? "ON" : "OFF"}* untuk ${scopeLabel}.`
+                    ],
+                    { emoji: nowOn ? "🟢" : "🔴" }
+                )
+            )
         }
 
         // ─── Tampilkan status + tombol ───

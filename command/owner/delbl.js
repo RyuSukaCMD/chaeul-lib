@@ -1,6 +1,5 @@
 import { delBlacklist, isBlacklist } from "../../lib/blacklistgroup.js"
 import { card } from "../../lib/ui.js"
-import { allowSilenceTemporarily } from "../../lib/silenceGuard.js"
 
 export default {
     command: ["delblacklistgroup", "delbl"],
@@ -26,14 +25,13 @@ export default {
 
         delBlacklist(m.chat)
 
-        allowSilenceTemporarily(m.chat)
 
         await m.react("✅")
 
         return m.reply(
             card(
                 "DEL BLACKLIST",
-                ["✅ Grup dihapus dari blacklist.", "Bot kembali aktif normal di grup ini."],
+                ["✅ Grup dihapus dari blacklist.", "Bot kembali melayani command di grup ini."],
                 { emoji: "🚫" }
             )
         )

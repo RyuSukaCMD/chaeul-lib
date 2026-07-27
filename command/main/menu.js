@@ -117,6 +117,15 @@ export default {
             }
         ]
 
+        // Panel pengaturan hanya tampil untuk owner.
+        if (isCreator) {
+            mainRows.push({
+                title: `⚙️ ${sc("Settings")}`,
+                description: sc("Mode bot, automation & keamanan"),
+                id: ".settings"
+            })
+        }
+
         // ─── Section 2: Kategori Fitur (termasuk Owner Menu dll) ───
         const order = Object.keys(groups).sort((a, b) => {
             if (a === "Main") return -1

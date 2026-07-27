@@ -2,7 +2,7 @@ import Button from "../../lib/button.js"
 import { getSettingToggles } from "../../lib/settings.js"
 
 export default {
-    command: ["settings"],
+    command: ["settings", "setting", "config", "konfigurasi"],
 
     category: "Owner",
 
@@ -11,10 +11,11 @@ export default {
     owner: true,
 
     async run({ sock, m }) {
-        // Pastikan objek setting selalu ada + nilai toggle terkini (restart-safe).
+        // Pastikan objek setting selalu ada + nilai toggle terkini (restart-safe),
+        // supaya .settings tidak pernah gagal tampil walau config belum dimuat.
         global.settings ||= {}
-        const toggles = getSettingToggles()
-        Object.assign(global.settings, toggles)
+        global.settings.public ??= true
+        Object.assign(global.settings, getSettingToggles())
 
         const body = `
 『 ⚙️ *Chaeul SETTINGS* 』
@@ -140,7 +141,22 @@ Silahkan pilih pengaturan dibawah.
             }
         ]
 
-        await Button.menu({
+        // Kirim sebagai menu berbutton; bila perangkat/koneksi menolak
+        // interactive message, jatuhkan ke teks biasa agar .settings SELALU muncul.
+        try {
+            await sendMenu()
+        } catch {
+            await m.reply(
+                `${body}\n` +
+                    `Ketik salah satu:\n` +
+                    `${global.prefix}public  ${global.prefix}self\n` +
+                    `${global.prefix}autoread  ${global.prefix}autotyping  ${global.prefix}autovoice\n` +
+                    `${global.prefix}grouponly  ${global.prefix}blockpc  ${global.prefix}blockcall`
+            )
+        }
+
+        async function sendMenu() {
+        return await Button.menu({
             sock,
 
             m,
@@ -177,9 +193,10 @@ Silahkan pilih pengaturan dibawah.
 
                     text: "🌐 Website",
 
-                    url: "https://google.com"
+                    url: global.link || "https://google.com"
                 }
             ]
         })
+        }
     }
 }

@@ -1,7 +1,6 @@
 import Loader from "../../lib/loader.js"
 import { card } from "../../lib/ui.js"
 import { checkAdmin } from "../../lib/groupadmin.js"
-import { allowSilenceTemporarily } from "../../lib/silenceGuard.js"
 import {
     disableCommand,
     enableCommand,
@@ -70,8 +69,7 @@ export default {
                     )
                 }
                 enableAll(m.chat)
-                allowSilenceTemporarily(m.chat)
-                await m.react("✅")
+                    await m.react("✅")
                 return m.reply(
                     card("ENABLE COMMAND", `✅ SEMUA command diaktifkan kembali.`, {
                         emoji: "✅"
@@ -82,20 +80,19 @@ export default {
             disableAll(m.chat)
             // Grup langsung "mati total" → beri izin bicara sesaat supaya
             // konfirmasi ini masih terkirim.
-            allowSilenceTemporarily(m.chat)
             await m.react("✅")
             return m.reply(
                 card(
-                    "BOT DIMATIKAN DI GRUP INI",
+                    "DISABLE COMMAND",
                     [
-                        `🚫 SEMUA command dimatikan.`,
-                        `Bot kini BENAR-BENAR tidak bekerja di grup ini:`,
-                        `• tidak membalas command & tombol`,
-                        `• tidak ada notifikasi (welcome, absen, cuaca,`,
-                        `  node status, antilink, AFK, dll)`,
-                        `• tidak ada teks "grup belum terdaftar"`,
+                        `🚫 SEMUA command dimatikan di grup ini.`,
+                        `Bot tidak melisten command apa pun (diam).`,
                         ``,
-                        `Yang masih dilayani hanya command pemulihan:`,
+                        `ℹ️ Notifikasi, welcome, antilink, auto-read`,
+                        `dan sistem lain TIDAK terpengaruh.`,
+                        `Untuk notifikasi gunakan ${global.prefix}disable.`,
+                        ``,
+                        `Command pemulihan tetap dilayani:`,
                         `${global.prefix}enablecommand all  (nyalakan semua)`,
                         `${global.prefix}enablecommand <command>  (whitelist 1)`,
                         `${global.prefix}listdisablecommand`
@@ -106,11 +103,17 @@ export default {
         }
 
         // Validasi command ada
-        if (!Loader.get(target)) {
+        const targetPlugin = Loader.get(target)
+        if (!targetPlugin) {
             return m.reply(card("COMMAND", `Command "${target}" tidak ditemukan.`, { emoji: "⚙️" }))
         }
 
-        if (PROTECTED.includes(target)) {
+        // Selalu simpan dengan NAMA UTAMA plugin, supaya mematikan satu alias
+        // otomatis mematikan seluruh alias & sub-command (tombol) miliknya.
+        const primary = Loader.primaryName(targetPlugin) || target
+        const aliases = Loader.aliasesOf(target).filter((a) => a !== primary)
+
+        if (PROTECTED.includes(primary) || PROTECTED.includes(target)) {
             return m.reply(
                 card("COMMAND", `Command "${target}" tidak bisa diubah (dilindungi).`, {
                     emoji: "⚙️"
@@ -121,7 +124,7 @@ export default {
         if (isEnable) {
             const allOff = isAllDisabled(m.chat)
             // Bila "disable all" TIDAK aktif & command memang sudah aktif → info
-            if (!allOff && !isDisabled(m.chat, target) && !isAdminOnly(m.chat, target)) {
+            if (!allOff && !isDisabled(m.chat, primary) && !isAdminOnly(m.chat, primary)) {
                 return m.reply(
                     card("ENABLE COMMAND", `Command "${target}" memang sudah aktif.`, {
                         emoji: "✅"
@@ -129,7 +132,7 @@ export default {
                 )
             }
             // Bila sudah di-whitelist saat disable all → info
-            if (allOff && isAllowed(m.chat, target)) {
+            if (allOff && isAllowed(m.chat, primary)) {
                 return m.reply(
                     card(
                         "ENABLE COMMAND",
@@ -138,8 +141,8 @@ export default {
                     )
                 )
             }
+            enableCommand(m.chat, primary)
             enableCommand(m.chat, target)
-            allowSilenceTemporarily(m.chat)
             await m.react("✅")
             return m.reply(
                 card(
@@ -156,20 +159,27 @@ export default {
         }
 
         // disable
-        disableCommand(m.chat, target, adminFlag)
-        allowSilenceTemporarily(m.chat)
+        disableCommand(m.chat, primary, adminFlag)
         await m.react("✅")
         return m.reply(
             card(
                 "DISABLE COMMAND",
                 adminFlag
                     ? [
-                          `🔒 Command *${target}* kini KHUSUS ADMIN.`,
-                          `Member biasa tidak bisa memakainya.`
+                          `🔒 Command *${primary}* kini KHUSUS ADMIN.`,
+                          `Member biasa tidak bisa memakainya.`,
+                          ...(aliases.length ? [`Termasuk alias: ${aliases.join(", ")}`] : []),
+                          `Seluruh sub-command/tombolnya ikut dibatasi.`
                       ]
                     : [
-                          `🚫 Command *${target}* dimatikan di grup ini.`,
-                          `Aktifkan lagi: ${global.prefix}enablecommand ${target}`
+                          `🚫 Command *${primary}* tidak dilisten lagi di grup ini.`,
+                          ...(aliases.length ? [`Alias ikut mati: ${aliases.join(", ")}`] : []),
+                          `Seluruh sub-command & tombolnya ikut mati.`,
+                          ``,
+                          `ℹ️ Ini hanya mematikan command tsb —`,
+                          `notifikasi & fitur lain tetap jalan.`,
+                          ``,
+                          `Aktifkan lagi: ${global.prefix}enablecommand ${primary}`
                       ],
                 { emoji: "⚙️" }
             )
