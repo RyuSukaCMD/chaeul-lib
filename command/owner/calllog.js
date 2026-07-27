@@ -1,5 +1,6 @@
 import { card } from "../../lib/ui.js"
-import { getCallLog } from "../../lib/pclog.js"
+import { getCallLog, getRecentCalls } from "../../lib/pclog.js"
+import { toDisplay } from "../../lib/phone.js"
 
 const wib = (ts) =>
     ts
@@ -22,28 +23,42 @@ export default {
     async run({ m }) {
         const db = getCallLog()
         const callers = Object.values(db.callers || {}).sort((a, b) => (b.last || 0) - (a.last || 0))
-        const recent = [...(db.recent || [])].reverse()
+        const recent = getRecentCalls(15)
 
         if (!recent.length)
             return m.reply(card("CALL LOG", "Belum ada panggilan masuk tercatat.", { emoji: "📞" }))
 
         const blockedCount = callers.filter((c) => c.blocked).length
+        const totalCalls = (db.recent || []).length
         const lines = [
-            `📊 ${recent.length} panggilan dari ${callers.length} nomor`,
+            `📊 ${totalCalls} panggilan dari ${callers.length} nomor`,
             `🚷 Terblokir: ${blockedCount} nomor`,
             ""
         ]
-        const mentions = []
+        lines.push("━━━━━━━━━━━━━━━━━", "🕒 *PANGGILAN TERBARU*", "")
 
-        recent.slice(0, 15).forEach((r) => {
-            mentions.push(`${r.num}@s.whatsapp.net`)
+        recent.forEach((r, i) => {
             const icon = r.action === "rejected+blocked" ? "🚷" : "👁️"
-            lines.push(`${icon} @${r.num}${r.isVideo ? " 📹" : ""} — ${r.action}`)
-            lines.push(`   ${wib(r.at)}`)
+            lines.push(
+                `${i + 1}. ${icon} ${r.display || toDisplay(r.num)}${r.isVideo ? " 📹" : ""}`
+            )
+            lines.push(`   ${r.action} • ${wib(r.at)}`)
         })
 
-        if (recent.length > 15) lines.push("", `…dan ${recent.length - 15} panggilan lainnya.`)
+        lines.push("", "━━━━━━━━━━━━━━━━━", "📇 *SEMUA PENELEPON*", "")
 
-        return m.reply(card("CALL LOG", lines, { emoji: "📞", footer: "🚷 = ditolak+block • 👁️ = hanya dicatat" }), { mentions })
+        callers.slice(0, 15).forEach((c, i) => {
+            lines.push(
+                `${i + 1}. ${c.display || toDisplay(c.num)}${c.blocked ? " 🚷" : ""}${c.country ? ` (${c.country})` : ""}`
+            )
+            lines.push(`   ${c.count}x • terakhir ${wib(c.last)}`)
+        })
+
+        return m.reply(
+            card("CALL LOG", lines, {
+                emoji: "📞",
+                footer: "🚷 = ditolak+block • 👁️ = hanya dicatat"
+            })
+        )
     }
 }

@@ -1,5 +1,6 @@
 import { card } from "../../lib/ui.js"
-import { getPcLog } from "../../lib/pclog.js"
+import { getPcLog, getRecentPc } from "../../lib/pclog.js"
+import { toDisplay } from "../../lib/phone.js"
 
 const wib = (ts) =>
     ts
@@ -23,19 +24,45 @@ export default {
         const users = getPcLog()
 
         if (!users.length)
-            return m.reply(card("PRIVATE CHAT LOG", "Belum ada private chat tercatat.", { emoji: "📒" }))
+            return m.reply(
+                card("PRIVATE CHAT LOG", "Belum ada private chat tercatat.", { emoji: "📒" })
+            )
 
-        const lines = [`📊 Total: ${users.length} nomor tersimpan`, ""]
-        const mentions = []
+        const blocked = users.filter((u) => u.blocked).length
+        const recent = getRecentPc(10)
+
+        const lines = [
+            `📊 Total   : ${users.length} nomor`,
+            `🚷 Diblokir : ${blocked} nomor`,
+            ""
+        ]
+
+        if (recent.length) {
+            lines.push("━━━━━━━━━━━━━━━━━", "🕒 *CHAT TERBARU*", "")
+            recent.forEach((r, i) => {
+                const icon = r.action === "blocked" ? "🚷" : r.action === "ignored" ? "🔇" : "💬"
+                lines.push(`${i + 1}. ${icon} ${r.display || toDisplay(r.num)}`)
+                lines.push(`   ${r.name || "-"} • ${wib(r.at)}`)
+            })
+            lines.push("")
+        }
+
+        lines.push("━━━━━━━━━━━━━━━━━", "📇 *SEMUA NOMOR*", "")
 
         users.slice(0, 20).forEach((u, i) => {
-            mentions.push(`${u.num}@s.whatsapp.net`)
-            lines.push(`${i + 1}. @${u.num}${u.name ? ` — ${u.name}` : ""}`)
-            lines.push(`   ${u.count} pesan • terakhir ${wib(u.last)}`)
+            lines.push(
+                `${i + 1}. ${u.display || toDisplay(u.num)}${u.blocked ? " 🚷" : ""}${u.country ? ` (${u.country})` : ""}`
+            )
+            lines.push(`   ${u.name || "-"} • ${u.count} pesan • ${wib(u.last)}`)
         })
 
         if (users.length > 20) lines.push("", `…dan ${users.length - 20} nomor lainnya.`)
 
-        return m.reply(card("PRIVATE CHAT LOG", lines, { emoji: "📒" }), { mentions })
+        return m.reply(
+            card("PRIVATE CHAT LOG", lines, {
+                emoji: "📒",
+                footer: "💬 = tercatat • 🔇 = diabaikan • 🚷 = diblokir"
+            })
+        )
     }
 }
